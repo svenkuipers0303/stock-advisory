@@ -1,0 +1,5 @@
+reports/
+stock_advisor_cache.json
+portfolio.json
+__pycache__/
+*.pyc
