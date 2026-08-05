@@ -298,6 +298,9 @@ class DataFetcher:
     def get_history(self, ticker: str, period: str = "1y") -> pd.DataFrame:
         try:
             df = yf.Ticker(ticker).history(period=period)
+            if df.empty:
+                return pd.DataFrame()
+            df = df[df["Close"] > 0]
             return df if not df.empty else pd.DataFrame()
         except Exception:
             return pd.DataFrame()
@@ -635,7 +638,9 @@ class AssetAnalyzer:
         if history.empty or len(history) < 50:
             return score, ["Insufficient price history for technical analysis"]
 
-        close = history["Close"]
+        close = history["Close"][history["Close"] > 0]
+        if len(close) < 50:
+            return score, ["Insufficient valid price history for technical analysis"]
         price = close.iloc[-1]
         ma50  = close.iloc[-50:].mean()
         ma200 = close.iloc[-200:].mean() if len(close) >= 200 else close.mean()
@@ -658,7 +663,7 @@ class AssetAnalyzer:
                 score -= 5; notes.append("Death cross active (50d < 200d MA) — technically bearish")
 
         # 3-month momentum
-        if len(close) >= 63:
+        if len(close) >= 63 and close.iloc[-63] > 0:
             mom_3m = (price - close.iloc[-63]) / close.iloc[-63] * 100
             if mom_3m > 20:
                 score += 15; notes.append(f"Strong 3-month momentum +{mom_3m:.1f}%")
@@ -689,8 +694,10 @@ class AssetAnalyzer:
         score = 50.0
         notes = []
 
-        if not history.empty and len(history) > 20:
-            daily_ret = history["Close"].pct_change().dropna()
+        close = history["Close"][history["Close"] > 0] if not history.empty else pd.Series(dtype=float)
+
+        if len(close) > 20:
+            daily_ret = close.pct_change().dropna()
             vol = daily_ret.std() * (252 ** 0.5) * 100
 
             if vol < 12:
@@ -704,8 +711,8 @@ class AssetAnalyzer:
             else:
                 score -= 25; notes.append(f"Annualized volatility {vol:.1f}% — very high volatility, speculative risk")
 
-            rolling_max = history["Close"].cummax()
-            drawdown = ((history["Close"] - rolling_max) / rolling_max).min() * 100
+            rolling_max = close.cummax()
+            drawdown = ((close - rolling_max) / rolling_max).min() * 100
             if drawdown > -8:
                 score += 12; notes.append(f"Max drawdown {drawdown:.1f}% — minimal historical losses")
             elif drawdown > -20:
