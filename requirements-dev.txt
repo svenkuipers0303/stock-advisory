@@ -1,0 +1,2 @@
+-r requirements_stocks.txt
+pytest>=8.0.0
