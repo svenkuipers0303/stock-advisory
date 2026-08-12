@@ -232,3 +232,96 @@ merged) in favor of #3, and PR #4 (this entry's own PR) was merged after
 resolving a log-append conflict with #2 and #3 — same class of conflict this
 entry describes, just one level up (the coordination-gap doc about append
 conflicts had its own append conflict). All four PRs are now resolved.
+
+### 2026-08-12 (test coverage — StockAdvisor/ReportGenerator integration tests; three more PRs found already open)
+
+**Checked `list_pull_requests` first, per this file's own repeated lesson.**
+Found **three** open, unmerged, unreviewed PRs already sitting here, none
+reflected in this file (same coordination gap as every prior entry —
+each PR's own log addition lives only in its diff until merged):
+- **#5** ("Add regression tests for the 2026-08-03 zero-price divide-by-zero
+  fix", opened 2026-08-06 — **6 days old, zero review activity**)
+- **#6** ("Add PortfolioManager test coverage", opened 2026-08-10, 2 days old)
+- **#7** ("Add InvestmentBriefEngine test coverage (37 tests)", opened
+  2026-08-11, 1 day old)
+
+All three are test-only, touch different files from each other
+(`tests/test_scoring.py`, `tests/test_portfolio.py`,
+`tests/test_investment_brief.py` respectively) and are well-verified
+(each includes mutation testing per its own PR description). No conflicts
+between them. **Flagging #5 specifically: it's been open 6 days with no
+review at all — the same aging-PR pattern as Crypto_Stockbot's PR #2 (also
+6 days old today, also zero review). Both repos now have a real backlog of
+solid, unreviewed work; a human pass to merge/close the six PRs open across
+both repos (this repo's #5/#6/#7 + Crypto_Stockbot's #2) would unblock more
+forward progress right now than another day of new work would.**
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`
+403 at CONNECT, same as every check since 2026-08-02 (cross-checked against
+Crypto_Stockbot's egress note today — Binance/CoinGecko/Kraken/Coinbase/Bybit
+are all still blocked there too, category-wide, not host-specific). The real
+`--ticker` smoke test against live sparse-data tickers, open since 2026-08-04,
+is still not reachable from this environment.
+
+**What was added, to avoid duplicating #5/#6/#7**: the two remaining items on
+the original test-coverage checklist were `NarrativeEngine` (flagged low
+priority — text generation, no scoring logic to regress) and
+`ReportGenerator`/`StockAdvisor` top-level orchestration (flagged as needing
+"an integration-style test with a mocked `DataFetcher`, not synthetic unit
+tests"). Picked the latter — real, previously-uncovered logic, no file
+overlap with any open PR.
+
+Added `tests/test_integration.py` (5 tests):
+- `StockAdvisor.analyze_all()` with `DataFetcher` mocked via
+  `patch.object(advisor.fetcher, ...)`: (1) a normal ticker flows through the
+  full 7-dimension scoring + narrative pipeline and produces a complete
+  analysis record; (2) when one ticker's `get_history()` raises mid-batch, that
+  ticker gets the documented fallback record (`score=50, label="Hold",
+  narrative={}`, etc.) while the other ticker in the same batch still
+  processes normally — this is the resilience contract `analyze_all()`'s
+  per-ticker `try/except` is supposed to provide, previously unverified by any
+  test; (3) the fallback record itself contains every key `_write_cache()`
+  reads via `.get(..., default)` — pins the fallback dict's shape so a future
+  edit can't silently drop a key relied on elsewhere, even though `.get()`
+  means it wouldn't crash today.
+- `ReportGenerator.generate_html()`: renders without crashing on synthetic
+  multi-asset analyses/recs/portfolio input and includes both tickers in the
+  output; also checked the empty-analyses/empty-recs case (e.g. a fresh
+  install with nothing analyzed yet) doesn't crash.
+
+**Verification**: `pytest tests/ -v` → **63/63 passing** (58 existing + 5
+new; #5/#6/#7's additional tests aren't in this checkout since those branches
+aren't merged, so the totals here don't include theirs yet). `python3 -m
+py_compile stock_advisor.py` clean — test-only PR, no changes to
+`stock_advisor.py`. **Mutation-tested the fallback-record test**: changed
+the except-branch's hardcoded `"label": "Hold"` to `"label": "Buy"` in
+`stock_advisor.py`, confirmed
+`test_fetcher_exception_for_one_ticker_falls_back_without_crashing_others`
+failed with the expected diff, reverted from a saved backup (not `git
+checkout --`, to sidestep the branch's own uncommitted new test file), full
+suite re-run clean afterward (63/63). Also cleared `__pycache__` before and
+after per the 2026-08-11 entry's stale-bytecode gotcha.
+
+**No changes to `stock_advisor.py`** — test-only PR, same pattern as
+#3/#5/#6/#7.
+
+**PR**: opened from branch `test/advisor-integration-coverage` against
+`main`.
+
+**What a stranger should do next**:
+1. **Highest priority, spanning both repos**: get a human to clear the
+   backlog — 3 open PRs here (#5, #6, #7, oldest 6 days) plus Crypto_Stockbot's
+   PR #2 (also 6 days, a real correctness bug fix). None have any review
+   activity. This is now a repeated pattern flagged across at least four
+   log entries (2026-08-05, 08-10, 08-11 here; 08-11 in Crypto_Stockbot) —
+   worth raising directly rather than just re-logging it a fifth time.
+2. Check `list_pull_requests` before starting next time, not just this file —
+   this session's own PR will add a fourth entry to the open-PR count.
+3. Re-check Yahoo Finance (`query1.finance.yahoo.com`) and the crypto exchange
+   hosts before assuming another blocked day.
+4. Remaining test-coverage gap after this PR: `NarrativeEngine` (text
+   generation only, low priority, no scoring logic to regress) — the last
+   item on the original checklist.
+5. Once egress opens, the real `--ticker` smoke test against a genuinely
+   sparse live ticker (open since 2026-08-04) is still the highest-value
+   data-robustness item.
