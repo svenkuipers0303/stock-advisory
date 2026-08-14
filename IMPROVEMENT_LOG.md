@@ -286,3 +286,35 @@ same point produced no visible response.
 5. If the backlog is still fully unreviewed on the next run, that's now a
    4th+ identical ask — treat it as a signal to keep flagging plainly
    rather than open more work behind it.
+
+### 2026-08-14 (status check only — same 4 PRs still unreviewed, no new PR opened; no repeat notification)
+
+**`list_pull_requests` checked first.** #5/#6/#7/#8 are unchanged from
+2026-08-13: still open, still zero review activity, still non-overlapping
+test-only diffs. #5 is now 8 days old (opened 08-06).
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still `403` at the CONNECT tunnel stage, same as every
+check since 2026-08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (10th consecutive day there). No live-data work was possible this
+session.
+
+**Deliberately did not open a 5th PR.** Nothing has changed since the
+2026-08-13 entry's own reasoning (four solid, verified PRs already sitting
+unreviewed — a fifth doesn't move anything forward). This entry is
+committed directly to `main` (log-only, no code change), same established
+exception as 08-13.
+
+**Deliberately did NOT send another notification.** The 08-13 session
+already sent one covering this exact 5-PR cross-repo backlog and the 8-day
+infra block. Nothing has moved since then — re-sending the same ask a
+second day running would be noise, not new information. Will notify again
+if the backlog changes (reviewed/merged) or grows further, not just because
+another day passed unreviewed.
+
+**What a stranger should do next:**
+1. Same ask as 08-13, unchanged: a human needs to review #5/#6/#7/#8 here
+   plus Crypto_Stockbot's PR #2.
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If the backlog is still untouched again tomorrow, keep this entry to a
+   one-line confirmation rather than re-explaining the same reasoning.
