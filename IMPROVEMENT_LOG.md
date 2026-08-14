@@ -233,6 +233,93 @@ resolving a log-append conflict with #2 and #3 — same class of conflict this
 entry describes, just one level up (the coordination-gap doc about append
 conflicts had its own append conflict). All four PRs are now resolved.
 
+### 2026-08-11 (test coverage — added InvestmentBriefEngine coverage; two more PRs found already open)
+
+**Before starting, checked `list_pull_requests` first** (per this file's own
+2026-08-05 lesson, not just this log) — found **two open, unmerged PRs already
+sitting here that this file doesn't mention**: **#5** ("Add regression tests for
+the 2026-08-03 zero-price divide-by-zero fix", opened 2026-08-06, `mergeable_state:
+clean`) and **#6** ("Add PortfolioManager test coverage", opened 2026-08-10,
+`mergeable_state: clean`). Both are test-only, touch different files from each
+other and from this session's work, no conflicts between them, both correctly
+awaiting a human merge — same "no CI configured, just needs eyes" state every PR
+in this repo has been in since the beginning. Not duplicating either; picked a
+still-uncovered class instead (see below). **Next session: check
+`list_pull_requests` before assuming this file is current — it wasn't, again.**
+
+**Yahoo Finance egress re-tested**: `query1/query2.finance.yahoo.com` and
+`finance.yahoo.com` all still 403 at the CONNECT stage this session — still
+blocked, same as every check since 2026-08-02. (Also newly confirmed this session,
+from the sibling Crypto_Stockbot routine: the block extends to every exchange API
+tested there too — Binance, CoinGecko, Kraken, Coinbase, Bybit — so this reads as
+a categorical policy on market-data hosts in this cloud environment generally, not
+something specific to Yahoo Finance or Binance individually.)
+
+**What was added**: `tests/test_investment_brief.py` (37 tests) covering
+`InvestmentBriefEngine`, previously untested. This class turns `analyses` +
+`regime_data` + `recs` + `profile` into the actual text/numbers a user reads (best
+pick, confidence label, allocation split, main risk, strategy blurb) — real logic
+worth protecting, not just plumbing:
+- `_overall_confidence`: clamping to [28, 85], the 0.40/0.60 regime-clarity/
+  asset-confidence blend, empty-`analyses` doesn't divide by zero.
+- `_conf_label`: all four boundary thresholds (72/55/40).
+- `_best_reason`: narrative-summary vs rec-reason fallback, 160-char truncation
+  with `…` (off-by-one checked at exactly 160 vs 200 chars).
+- `_main_risk`: explicit BEARISH/CAUTION signal takes priority over top-pick bear
+  case; the literal "No significant bear case factors..." placeholder string is
+  correctly skipped rather than shown as if it were real; multi-part bear cases
+  (` | `-joined) return only the first segment; final fallback to regime defaults.
+- `_strategy`: BULLISH+confidence>=58 risk-on branch, DEFENSIVE's `min(90, etf_pct
+  + 10)` allocation cap (tested against a profile where the uncapped value would
+  exceed 90, to actually exercise the cap, not just the common case).
+- `_market_brief`: regime intro selection, yield/VIX signal inclusion, buy-count
+  computation, bull-vs-bear momentum phrasing.
+- `generate()`: full integration — `best_ticker`/`best_score` from `recs[0]` (and
+  `None`/`"—"` when `recs` is empty), `avoid` list (score < 45, sorted ascending,
+  capped at 3, boundary-tested at exactly 45), `top_picks` capped at 3,
+  `alloc_stocks = max(0, 85 - etf_pct)` never going negative for a high-etf_pct
+  profile.
+
+No changes to `stock_advisor.py` — test-only PR, no file overlap with #5
+(`tests/test_scoring.py`) or #6 (`tests/test_portfolio.py`).
+
+**Verification**: `pytest tests/ -v` → 95/95 passing (58 existing + 37 new).
+`python3 -m py_compile stock_advisor.py` — clean. **Mutation-tested two
+assertions against deliberately broken code**: (1) added `+ 30` to the
+`_overall_confidence` clamp expression — 3 of 4 confidence tests failed as
+expected, confirming they actually pin the formula rather than just checking it
+runs; (2) changed the DEFENSIVE allocation cap from `min(90, ...)` to `min(99,
+...)` — `test_defensive_allocation_caps_at_90` failed as expected. Both reverted
+via `git diff`-clean restore, full suite re-run clean afterward.
+
+**Gotcha for future sessions doing mutation testing here**: after reverting a
+source-file mutation, a stale `__pycache__/*.pyc` can make Python keep running
+the *mutated* bytecode even though the `.py` source and `git status` both show
+clean — cost about ten minutes of confusion this session (a "still failing"
+result that looked like a real bug but was a compiled-cache artifact). Run `find
+. -name __pycache__ -exec rm -rf {} +` (or `python3 -B`) after any revert, before
+trusting a "still red" result. `__pycache__/` should probably also get a
+`.gitignore` entry if it doesn't have one — worth checking, didn't verify this
+session.
+
+**What a stranger should do next**:
+1. Check `list_pull_requests` first, not just this file — #5, #6, and this
+   session's new PR may all still be open and unreviewed.
+2. Re-check Yahoo Finance and Binance/exchange egress before assuming either is
+   still blocked — worth a fast `curl` against `query1.finance.yahoo.com` and
+   `api.binance.com` before writing off another day as infra-only.
+3. Test-coverage checklist remaining: `NarrativeEngine` (text generation, lower
+   priority, no scoring logic to regress), `ReportGenerator`/`StockAdvisor`
+   top-level orchestration (needs a mocked-`DataFetcher` integration-style test,
+   not synthetic unit tests — same shape as #6's PortfolioManager approach).
+4. Once egress is restored, the still-open "data robustness" item from the
+   2026-08-04 entry is the highest-value next step: real `--ticker` run against a
+   genuinely sparse ticker (newly-listed, foreign ADR, ETF missing fundamentals)
+   to see how `DataFetcher`/scoring actually degrade, not just synthetic
+   missing-field cases.
+
+**PR**: opened from branch `test/investment-brief-coverage` against `main`.
+
 ### 2026-08-13 (status check — 4 open PRs still unreviewed, no new PR opened; committed directly to `main` to avoid adding a 5th)
 
 **`list_pull_requests` checked first, per this file's own repeated lesson —
