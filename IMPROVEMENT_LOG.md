@@ -318,3 +318,36 @@ another day passed unreviewed.
 2. Re-check Yahoo/exchange egress before assuming another blocked day.
 3. If the backlog is still untouched again tomorrow, keep this entry to a
    one-line confirmation rather than re-explaining the same reasoning.
+
+### 2026-08-17 (status check — same 4 PRs still unreviewed, now up to 11 days old; egress still blocked; explains the 08-15/08-16 gap)
+
+**`list_pull_requests` checked.** #5/#6/#7/#8 unchanged from 08-14: still
+open, zero review or comment activity on any of them. #5 is now 11 days old
+(opened 08-06), #8 is 5 days old.
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still 403 at the CONNECT tunnel stage, identical to
+every check since 08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (12th consecutive day there — see that repo's BACKTEST_LOG.md).
+
+**No 5th PR opened** — same reasoning as 08-13/08-14, unchanged.
+
+**Why there's a gap between 08-14 and today**: this account's routine session
+hit Claude's weekly usage limit on 08-14 (confirmed via `get_session`:
+`"You've hit your weekly limit · resets Aug 17, 1am (UTC)"`) — not a bug, not
+a silent logging failure, just quota exhaustion. Worth remembering the next
+time entries go missing for a few days: check the session's status before
+assuming something in the routine logic broke. Noted in full detail in
+Crypto_Stockbot's BACKTEST_LOG.md 2026-08-17 entry (not duplicated here).
+
+**No code changes this session.** A push notification was sent from the
+Crypto_Stockbot side of this run covering both repos' backlog and the
+weekly-limit finding — not duplicated here to avoid a second alert for the
+same information.
+
+**What a stranger should do next:**
+1. Same ask, now older: a human needs to review #5/#6/#7/#8 here (up to 11
+   days) plus Crypto_Stockbot's PR #2 (11 days).
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If weekly-limit exhaustion recurs and entries go missing again, check
+   `get_session` on the routine's persistent session first.
