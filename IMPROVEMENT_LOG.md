@@ -351,3 +351,32 @@ same information.
 2. Re-check Yahoo/exchange egress before assuming another blocked day.
 3. If weekly-limit exhaustion recurs and entries go missing again, check
    `get_session` on the routine's persistent session first.
+
+### 2026-08-18 (status check only — same 4 PRs still unreviewed, up to 12 days old; egress still blocked; no new PR, no notification)
+
+**`list_pull_requests` checked, then #5/#6/#7/#8 each re-verified directly
+via `get_comments`** (not just re-reading this log or trusting `updated_at`):
+all four return zero comments. #5 is now 12 days old (opened 08-06), #6 8
+days, #7 7 days, #8 6 days — unchanged in substance from 08-17, just older.
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still `403` at the CONNECT tunnel stage, identical to
+every check since 08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (13th consecutive day there — see that repo's BACKTEST_LOG.md,
+also re-verified this session). No live-data work was possible.
+
+**No 5th PR opened, no notification sent** — same reasoning as 08-13/08-14:
+nothing has changed (backlog still fully unreviewed, egress still blocked),
+and 08-17 already notified the human of this exact combined-backlog state
+one day ago. Re-notifying for one more day of aging with no movement would
+be noise, not new information.
+
+**No code changes this session.**
+
+**What a stranger should do next:**
+1. Same ask, unchanged: a human needs to review #5/#6/#7/#8 here (up to 12
+   days) plus Crypto_Stockbot's PR #2 (12 days).
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If the backlog is still fully untouched next time, these infra-only
+   entries can likely drop to one line — the substance hasn't changed
+   since 08-13.
