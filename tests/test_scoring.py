@@ -203,6 +203,24 @@ class TestTechnicals:
         assert score < 40
         assert any("downtrend" in n.lower() for n in notes)
 
+    def test_zero_price_63_bars_back_does_not_produce_inf_momentum(self):
+        # Regression test for the divide-by-zero bug fixed 2026-08-03
+        # (IMPROVEMENT_LOG.md): yfinance occasionally emits a literal 0.0
+        # close (not NaN) on thin/halted/recently-relisted tickers. Before
+        # the fix, `(price - close.iloc[-63]) / close.iloc[-63]` on a zero
+        # denominator produced +inf momentum and a phantom 90/100 score.
+        rng = np.random.default_rng(42)
+        n = 260
+        prices = np.linspace(50.0, 100.0, n) + rng.normal(0, 0.3, n)
+        prices[-63] = 0.0  # corrupted data point, 63 bars back from the end
+        history = make_history(prices)
+
+        score, notes = self.analyzer.analyze_technicals(history)
+
+        assert np.isfinite(score)
+        assert 0.0 <= score <= 100.0
+        assert not any("inf" in n.lower() or "nan" in n.lower() for n in notes)
+
 
 # ─────────────────────────────────────────────────────────────
 #  AssetAnalyzer.analyze_risk
@@ -232,6 +250,28 @@ class TestRisk:
         score, notes = self.analyzer.analyze_risk(history, {"beta": 0.3})
         # baseline (50) + beta bonus only, since len(history) <= 20 skips the vol/drawdown branch
         assert score == 50 + 12
+
+    def test_zero_price_in_history_does_not_corrupt_risk_score(self):
+        # Regression test for the divide-by-zero bug fixed 2026-08-03
+        # (IMPROVEMENT_LOG.md): a single 0.0 close made rolling_max's
+        # ((close - rolling_max) / rolling_max) drawdown calc produce
+        # nan volatility and a phantom -100% "severe drawdown", driving
+        # an otherwise-healthy price series down to 7/100.
+        rng = np.random.default_rng(42)
+        n = 260
+        prices = np.linspace(50.0, 100.0, n) + rng.normal(0, 0.3, n)
+        prices[-63] = 0.0
+        history = make_history(prices)
+
+        score, notes = self.analyzer.analyze_risk(history, {})
+
+        assert np.isfinite(score)
+        assert 0.0 <= score <= 100.0
+        assert not any("nan" in n.lower() for n in notes)
+        assert not any("-100.0%" in n for n in notes)
+        # a steady 50->100 uptrend has no real severe drawdown; the glitch
+        # must not drag this into "severe historical drawdown" territory
+        assert score >= 60
 
 
 # ─────────────────────────────────────────────────────────────

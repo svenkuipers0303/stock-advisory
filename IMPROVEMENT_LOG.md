@@ -233,6 +233,83 @@ resolving a log-append conflict with #2 and #3 — same class of conflict this
 entry describes, just one level up (the coordination-gap doc about append
 conflicts had its own append conflict). All four PRs are now resolved.
 
+### 2026-08-06 (test coverage — regression tests for the 2026-08-03 zero-price fix)
+
+**Checked `list_pull_requests` first, per this log's own instruction** — clean,
+nothing open beyond what's already reflected on `main`.
+
+**Yahoo Finance is still egress-blocked in this cloud environment** (`query1`/
+`query2.finance.yahoo.com`, `finance.yahoo.com` — 403 at the CONNECT tunnel
+stage, confirmed this session; same wall the Crypto_Stockbot repo hits on
+Binance/CoinGecko, both checked from the same environment today). So the
+"real `--ticker` smoke test once Yahoo Finance egress is unblocked" item
+flagged as next-up in the 2026-08-05 entry still isn't reachable. Picked the
+next item that doesn't need network access instead — the specific regression
+test the 2026-08-03 entry called out as not-yet-written: *"once PR #1 merges,
+add a regression test for this exact scenario (zero-price data point 63 bars
+back) to `tests/test_scoring.py`."* PR #1's superseding PR (#3) merged
+2026-08-05, so that condition is now met.
+
+**Added two tests to `tests/test_scoring.py`** (`TestTechnicals` and
+`TestRisk`), reproducing the exact synthetic repro described in the
+2026-08-03 entry (260 daily closes trending 50→100, one point 63 bars back
+forced to `0.0`):
+- `test_zero_price_63_bars_back_does_not_produce_inf_momentum` — asserts the
+  technicals score stays finite and in `[0, 100]`, and no note contains
+  `"inf"`/`"nan"`.
+- `test_zero_price_in_history_does_not_corrupt_risk_score` — asserts the risk
+  score stays finite, in `[0, 100]`, no note contains `"nan"` or the literal
+  `"-100.0%"` phantom-drawdown string, and the score doesn't fall below 60
+  (a real steady uptrend has no genuine severe drawdown to justify a low
+  score).
+
+**Also did the "grep for other similarly-shaped divisions" audit flagged as
+not-yet-exhaustive in the 2026-08-03 entry**: searched `stock_advisor.py` for
+`/ *.iloc[`, `/ *.mean()`, `/ rolling_max`-shaped patterns. Found only the
+two already-fixed sites (technicals momentum, risk drawdown) plus one
+already-guarded sentiment ratio (`pos / total`, explicit `if total == 0`
+check before the divide) and two in `PortfolioManager` (`total_pnl_pct`,
+`alloc` — divide by `total_invested`/`total_value`, which can't legitimately
+be zero for an existing holding; out of scope per the 2026-08-04 entry, which
+already flagged `PortfolioManager` as needing filesystem+yfinance mocking
+rather than a synthetic-input unit test). **No new divide-by-zero sites
+found** — the 2026-08-03 fix's three-point patch was complete for the
+scoring engine.
+
+**Verification**:
+- `pytest tests/ -v` → **60/60 passing** (58 existing + 2 new).
+- `python3 -m py_compile stock_advisor.py` — clean (no code changes anyway,
+  test-only PR).
+- **Mutation-tested both new tests against the pre-fix code**, not just
+  confirmed they pass now: reverted the `close > 0` filters in both
+  `analyze_technicals` and `analyze_risk` (including the redundant inline
+  `close.iloc[-63] > 0` guard inside the momentum branch — removing only the
+  top-of-function filter wasn't enough to reproduce the bug, since that
+  inline guard independently protects the momentum calc; had to strip both
+  to actually hit the `inf`/`nan` path). Confirmed both new tests **fail**
+  against the reverted code (`RuntimeWarning: divide by zero`, `"nan"` in
+  notes, exactly as the 2026-08-03 entry described), then
+  `git checkout -- stock_advisor.py` to restore the fix and re-ran the full
+  suite clean (60/60). This is real regression coverage, not tests written
+  to match whatever the code already does.
+
+**No changes to `stock_advisor.py`** — test-only PR, same pattern as #1/#3.
+
+**Next step for tomorrow's run**: (1) re-check Yahoo Finance egress before
+assuming another blocked day — once reachable, the real `--ticker` smoke
+test against genuinely sparse tickers (newly-listed, foreign ADRs, ETFs
+missing fundamentals fields) from the 2026-08-04 entry's next-step list is
+still the highest-value remaining item and hasn't been attempted with real
+data yet. (2) Remaining test-coverage gaps, still open: `NarrativeEngine`
+(low priority, no scoring logic to regress), `PortfolioManager` (needs
+filesystem + yfinance mocking, not synthetic-input unit tests),
+`ReportGenerator`/`StockAdvisor` top-level orchestration (better suited to
+an integration-style test with a mocked `DataFetcher`). (3) Check
+`list_pull_requests` before starting, per the 2026-08-05 coordination-gap
+fix, even though this session found it clean.
+
+**Status update from the merging session (2026-08-18): merged as PR #5.**
+
 ### 2026-08-10 (test coverage — PortfolioManager, mocked yfinance + tmp file, no network)
 
 **Checked `list_pull_requests` first, per this log's own rule** (the 2026-08-05
