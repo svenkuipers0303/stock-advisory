@@ -302,3 +302,246 @@ egress stays blocked, the two test-coverage gaps left from the original
 checklist are `NarrativeEngine` (low priority, no scoring logic to regress) and
 `ReportGenerator`/`StockAdvisor` top-level orchestration (integration-style,
 mocked `DataFetcher` rather than unit tests).
+
+**Status update from the merging session (2026-08-18): merged as PR #6.**
+
+### 2026-08-12 (test coverage — StockAdvisor/ReportGenerator integration tests; three more PRs found already open)
+
+**Checked `list_pull_requests` first, per this file's own repeated lesson.**
+Found **three** open, unmerged, unreviewed PRs already sitting here, none
+reflected in this file (same coordination gap as every prior entry —
+each PR's own log addition lives only in its diff until merged):
+- **#5** ("Add regression tests for the 2026-08-03 zero-price divide-by-zero
+  fix", opened 2026-08-06 — **6 days old, zero review activity**)
+- **#6** ("Add PortfolioManager test coverage", opened 2026-08-10, 2 days old)
+- **#7** ("Add InvestmentBriefEngine test coverage (37 tests)", opened
+  2026-08-11, 1 day old)
+
+All three are test-only, touch different files from each other
+(`tests/test_scoring.py`, `tests/test_portfolio.py`,
+`tests/test_investment_brief.py` respectively) and are well-verified
+(each includes mutation testing per its own PR description). No conflicts
+between them. **Flagging #5 specifically: it's been open 6 days with no
+review at all — the same aging-PR pattern as Crypto_Stockbot's PR #2 (also
+6 days old today, also zero review). Both repos now have a real backlog of
+solid, unreviewed work; a human pass to merge/close the six PRs open across
+both repos (this repo's #5/#6/#7 + Crypto_Stockbot's #2) would unblock more
+forward progress right now than another day of new work would.**
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`
+403 at CONNECT, same as every check since 2026-08-02 (cross-checked against
+Crypto_Stockbot's egress note today — Binance/CoinGecko/Kraken/Coinbase/Bybit
+are all still blocked there too, category-wide, not host-specific). The real
+`--ticker` smoke test against live sparse-data tickers, open since 2026-08-04,
+is still not reachable from this environment.
+
+**What was added, to avoid duplicating #5/#6/#7**: the two remaining items on
+the original test-coverage checklist were `NarrativeEngine` (flagged low
+priority — text generation, no scoring logic to regress) and
+`ReportGenerator`/`StockAdvisor` top-level orchestration (flagged as needing
+"an integration-style test with a mocked `DataFetcher`, not synthetic unit
+tests"). Picked the latter — real, previously-uncovered logic, no file
+overlap with any open PR.
+
+Added `tests/test_integration.py` (5 tests):
+- `StockAdvisor.analyze_all()` with `DataFetcher` mocked via
+  `patch.object(advisor.fetcher, ...)`: (1) a normal ticker flows through the
+  full 7-dimension scoring + narrative pipeline and produces a complete
+  analysis record; (2) when one ticker's `get_history()` raises mid-batch, that
+  ticker gets the documented fallback record (`score=50, label="Hold",
+  narrative={}`, etc.) while the other ticker in the same batch still
+  processes normally — this is the resilience contract `analyze_all()`'s
+  per-ticker `try/except` is supposed to provide, previously unverified by any
+  test; (3) the fallback record itself contains every key `_write_cache()`
+  reads via `.get(..., default)` — pins the fallback dict's shape so a future
+  edit can't silently drop a key relied on elsewhere, even though `.get()`
+  means it wouldn't crash today.
+- `ReportGenerator.generate_html()`: renders without crashing on synthetic
+  multi-asset analyses/recs/portfolio input and includes both tickers in the
+  output; also checked the empty-analyses/empty-recs case (e.g. a fresh
+  install with nothing analyzed yet) doesn't crash.
+
+**Verification**: `pytest tests/ -v` → **63/63 passing** (58 existing + 5
+new; #5/#6/#7's additional tests aren't in this checkout since those branches
+aren't merged, so the totals here don't include theirs yet). `python3 -m
+py_compile stock_advisor.py` clean — test-only PR, no changes to
+`stock_advisor.py`. **Mutation-tested the fallback-record test**: changed
+the except-branch's hardcoded `"label": "Hold"` to `"label": "Buy"` in
+`stock_advisor.py`, confirmed
+`test_fetcher_exception_for_one_ticker_falls_back_without_crashing_others`
+failed with the expected diff, reverted from a saved backup (not `git
+checkout --`, to sidestep the branch's own uncommitted new test file), full
+suite re-run clean afterward (63/63). Also cleared `__pycache__` before and
+after per the 2026-08-11 entry's stale-bytecode gotcha.
+
+**No changes to `stock_advisor.py`** — test-only PR, same pattern as
+#3/#5/#6/#7.
+
+**PR**: opened from branch `test/advisor-integration-coverage` against
+`main`.
+
+**What a stranger should do next**:
+1. **Highest priority, spanning both repos**: get a human to clear the
+   backlog — 3 open PRs here (#5, #6, #7, oldest 6 days) plus Crypto_Stockbot's
+   PR #2 (also 6 days, a real correctness bug fix). None have any review
+   activity. This is now a repeated pattern flagged across at least four
+   log entries (2026-08-05, 08-10, 08-11 here; 08-11 in Crypto_Stockbot) —
+   worth raising directly rather than just re-logging it a fifth time.
+2. Check `list_pull_requests` before starting next time, not just this file —
+   this session's own PR will add a fourth entry to the open-PR count.
+3. Re-check Yahoo Finance (`query1.finance.yahoo.com`) and the crypto exchange
+   hosts before assuming another blocked day.
+4. Remaining test-coverage gap after this PR: `NarrativeEngine` (text
+   generation only, low priority, no scoring logic to regress) — the last
+   item on the original checklist.
+5. Once egress opens, the real `--ticker` smoke test against a genuinely
+   sparse live ticker (open since 2026-08-04) is still the highest-value
+   data-robustness item.
+
+### 2026-08-13 (status check — 4 open PRs still unreviewed, no new PR opened; committed directly to `main` to avoid adding a 5th)
+
+**`list_pull_requests` checked first, per this file's own repeated lesson —
+`main`'s copy of this log is stale relative to what's actually open.**
+Confirmed four open, unmerged, unreviewed test-only PRs, none reflected on
+`main` yet (each one's own log entry lives only in its diff until merged,
+same coordination gap this file first flagged on 2026-08-05):
+- **#5** ("Add regression tests for the 2026-08-03 zero-price divide-by-zero
+  fix"), opened 2026-08-06 — **7 days old, zero review activity.**
+- **#6** ("Add PortfolioManager test coverage"), opened 2026-08-10, 3 days old.
+- **#7** ("Add InvestmentBriefEngine test coverage"), opened 2026-08-11, 2 days old.
+- **#8** ("Add StockAdvisor/ReportGenerator integration test coverage"),
+  opened 2026-08-12, 1 day old.
+
+All four are test-only, touch non-overlapping files, and per their own PR
+descriptions are already verified (mutation-tested, full suite green). None
+have any review comments.
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`
+and `finance.yahoo.com` all `403` at the CONNECT tunnel stage, same as every
+check since 2026-08-02 (cross-checked against Crypto_Stockbot's egress —
+Binance and four other exchange APIs are also still blocked there, 8th
+consecutive day). No live-data work was possible this session either.
+
+**Deliberately did not open a 5th PR this session.** With four solid,
+verified PRs already sitting completely unreviewed (oldest 7 days), adding
+more test coverage behind a fifth unreviewed PR doesn't move anything
+forward — it just grows the pile. This exact point was already made in the
+2026-08-12 entry living inside PR #8's diff; repeating it a third time in a
+new PR would be the same mistake. Instead this entry is committed directly
+to `main` (log-only, no code change, matching this repo's own established
+exception for research/status entries with nothing to merge) so the
+backlog is visible from `main` without waiting on any PR to land. Also sent
+a direct notification this session flagging the combined 5-PR backlog
+(this repo's 4 + Crypto_Stockbot's PR #2, also 7 days unreviewed) and the
+8-day cross-repo egress block, since three prior log entries raising the
+same point produced no visible response.
+
+**No changes to `stock_advisor.py` or any test file this session.**
+
+**What a stranger should do next:**
+1. **Highest priority, spanning both repos**: get a human to clear the
+   backlog — this repo's #5/#6/#7/#8 (up to 7 days old) plus
+   Crypto_Stockbot's PR #2 (7 days, a real correctness bug fix). 5 PRs
+   total, zero review activity on any of them.
+2. Check `list_pull_requests` before starting next time, not just this file.
+3. Re-check Yahoo Finance and the crypto exchange hosts before assuming
+   another blocked day.
+4. Remaining test-coverage gap once the backlog clears: `NarrativeEngine`
+   (text generation only, low priority, no scoring logic to regress).
+5. If the backlog is still fully unreviewed on the next run, that's now a
+   4th+ identical ask — treat it as a signal to keep flagging plainly
+   rather than open more work behind it.
+
+### 2026-08-14 (status check only — same 4 PRs still unreviewed, no new PR opened; no repeat notification)
+
+**`list_pull_requests` checked first.** #5/#6/#7/#8 are unchanged from
+2026-08-13: still open, still zero review activity, still non-overlapping
+test-only diffs. #5 is now 8 days old (opened 08-06).
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still `403` at the CONNECT tunnel stage, same as every
+check since 2026-08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (10th consecutive day there). No live-data work was possible this
+session.
+
+**Deliberately did not open a 5th PR.** Nothing has changed since the
+2026-08-13 entry's own reasoning (four solid, verified PRs already sitting
+unreviewed — a fifth doesn't move anything forward). This entry is
+committed directly to `main` (log-only, no code change), same established
+exception as 08-13.
+
+**Deliberately did NOT send another notification.** The 08-13 session
+already sent one covering this exact 5-PR cross-repo backlog and the 8-day
+infra block. Nothing has moved since then — re-sending the same ask a
+second day running would be noise, not new information. Will notify again
+if the backlog changes (reviewed/merged) or grows further, not just because
+another day passed unreviewed.
+
+**What a stranger should do next:**
+1. Same ask as 08-13, unchanged: a human needs to review #5/#6/#7/#8 here
+   plus Crypto_Stockbot's PR #2.
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If the backlog is still untouched again tomorrow, keep this entry to a
+   one-line confirmation rather than re-explaining the same reasoning.
+
+### 2026-08-17 (status check — same 4 PRs still unreviewed, now up to 11 days old; egress still blocked; explains the 08-15/08-16 gap)
+
+**`list_pull_requests` checked.** #5/#6/#7/#8 unchanged from 08-14: still
+open, zero review or comment activity on any of them. #5 is now 11 days old
+(opened 08-06), #8 is 5 days old.
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still 403 at the CONNECT tunnel stage, identical to
+every check since 08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (12th consecutive day there — see that repo's BACKTEST_LOG.md).
+
+**No 5th PR opened** — same reasoning as 08-13/08-14, unchanged.
+
+**Why there's a gap between 08-14 and today**: this account's routine session
+hit Claude's weekly usage limit on 08-14 (confirmed via `get_session`:
+`"You've hit your weekly limit · resets Aug 17, 1am (UTC)"`) — not a bug, not
+a silent logging failure, just quota exhaustion. Worth remembering the next
+time entries go missing for a few days: check the session's status before
+assuming something in the routine logic broke. Noted in full detail in
+Crypto_Stockbot's BACKTEST_LOG.md 2026-08-17 entry (not duplicated here).
+
+**No code changes this session.** A push notification was sent from the
+Crypto_Stockbot side of this run covering both repos' backlog and the
+weekly-limit finding — not duplicated here to avoid a second alert for the
+same information.
+
+**What a stranger should do next:**
+1. Same ask, now older: a human needs to review #5/#6/#7/#8 here (up to 11
+   days) plus Crypto_Stockbot's PR #2 (11 days).
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If weekly-limit exhaustion recurs and entries go missing again, check
+   `get_session` on the routine's persistent session first.
+
+### 2026-08-18 (status check only — same 4 PRs still unreviewed, up to 12 days old; egress still blocked; no new PR, no notification)
+
+**`list_pull_requests` checked, then #5/#6/#7/#8 each re-verified directly
+via `get_comments`** (not just re-reading this log or trusting `updated_at`):
+all four return zero comments. #5 is now 12 days old (opened 08-06), #6 8
+days, #7 7 days, #8 6 days — unchanged in substance from 08-17, just older.
+
+**Yahoo Finance re-tested** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`): still `403` at the CONNECT tunnel stage, identical to
+every check since 08-02. Crypto_Stockbot's exchange APIs are also still
+blocked (13th consecutive day there — see that repo's BACKTEST_LOG.md,
+also re-verified this session). No live-data work was possible.
+
+**No 5th PR opened, no notification sent** — same reasoning as 08-13/08-14:
+nothing has changed (backlog still fully unreviewed, egress still blocked),
+and 08-17 already notified the human of this exact combined-backlog state
+one day ago. Re-notifying for one more day of aging with no movement would
+be noise, not new information.
+
+**No code changes this session.**
+
+**What a stranger should do next:**
+1. Same ask, unchanged: a human needs to review #5/#6/#7/#8 here (up to 12
+   days) plus Crypto_Stockbot's PR #2 (12 days).
+2. Re-check Yahoo/exchange egress before assuming another blocked day.
+3. If the backlog is still fully untouched next time, these infra-only
+   entries can likely drop to one line — the substance hasn't changed
+   since 08-13.
