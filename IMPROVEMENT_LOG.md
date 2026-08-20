@@ -638,3 +638,100 @@ Added `tests/test_narrative.py` (26 tests) covering:
    still the highest-value data-robustness item, and hasn't been attempted
    with real data yet in either repo.
 4. Check `list_pull_requests` before starting next time, not just this file.
+
+### 2026-08-20 (bug fix — StockAdvisor.__init__ mutated the shared USER_PROFILES dict; scoring-quality category, not test coverage)
+
+**Egress re-tested** (`query1`/`query2.finance.yahoo.com`, `finance.yahoo.com`
+vs `pypi.org` control): still 403 at the CONNECT tunnel stage, identical
+pattern to every check since 08-02. Crypto_Stockbot's exchange hosts are also
+still blocked (see that repo's BACKTEST_LOG.md 2026-08-20 entry). No live-data
+work possible.
+
+**`list_pull_requests` checked first.** #6 (12 days), #7 (9 days) unchanged,
+zero comments/reviews (re-verified via `get_comments`/`get_reviews`, not just
+`updated_at`). #9 (`NarrativeEngine` tests, opened 08-19) is also still zero
+activity. No backlog movement since the 08-19 entry (visible in PR #9's own
+diff, not yet on `main` — that PR correctly notes the test-coverage checklist
+is now closed once #6/#7 land, and that the next item should come from data
+robustness or scoring quality rather than more test files).
+
+**Picked a scoring-quality item, per that guidance**, and found a real bug
+by reading `StockAdvisor.__init__` closely (same approach that found the
+2026-08-03 divide-by-zero bug) rather than adding another synthetic test on
+top of already-covered scoring functions:
+
+```python
+profile_key   = profile_name or CONFIG["default_profile"]
+self.profile  = USER_PROFILES.get(profile_key, USER_PROFILES["balanced"])
+self.profile["key"] = profile_key
+```
+
+`USER_PROFILES.get(...)` returns a **reference** to the module-level dict,
+not a copy. `self.profile["key"] = profile_key` therefore mutates the
+*shared global* `USER_PROFILES` entry in place. Confirmed with a live repro
+(see below) that an invalid/typo'd `--profile` name (e.g. `grwoth`) falls
+back to `USER_PROFILES["balanced"]` as intended, but then permanently writes
+`"key": "grwoth"` into the real global `balanced` profile — for the rest of
+the process. The report/analysis itself still correctly uses balanced's
+weights and labels (those are read directly off the mutated-but-otherwise-
+intact dict), but `_write_cache()` reads `self.profile.get("key", "balanced")`
+into the cache JSON — so the cache would report the analysis was run under
+profile `"grwoth"` (a name that doesn't exist) when it was actually run
+under `balanced`. In a long-running process instantiating `StockAdvisor`
+more than once (tests, a future service wrapper), this also meant *every*
+profile dict was a live shared object — two instances holding the "same"
+profile were holding the same object, not independent copies.
+
+**Fix**: copy the profile dict instead of aliasing it, and validate the key
+before falling back — so the cache records the profile that was *actually*
+applied, not the user's typo, and a bad `--profile` value is printed to the
+user instead of silently swapping their risk profile with no notice:
+
+```python
+profile_key = profile_name or CONFIG["default_profile"]
+if profile_key not in USER_PROFILES:
+    print(f"  Unknown profile '{profile_key}' — falling back to 'balanced'.")
+    profile_key = "balanced"
+self.profile = dict(USER_PROFILES[profile_key])
+self.profile["key"] = profile_key
+```
+
+**Verification**:
+- Live repro script confirmed the bug pre-fix (`adv.profile is
+  USER_PROFILES["balanced"]` → `True`; `USER_PROFILES["balanced"]["key"]`
+  permanently became `"grwoth"`) and confirmed it's gone post-fix (`is` now
+  `False`, global dict has no `"key"` field at all, `adv.profile["key"]`
+  correctly reads `"balanced"`).
+- Added `TestProfileSelection` (3 tests) to `tests/test_integration.py`:
+  valid profile doesn't mutate the global; an unknown profile falls back
+  without corrupting `USER_PROFILES["balanced"]` and prints a warning;
+  two advisors with different profiles don't share state.
+- **Mutation-tested for real**: reverted `stock_advisor.py` to the exact
+  pre-fix code, reran the 3 new tests — all 3 failed with the precise
+  corruption described above, confirming they'd have caught this bug.
+  Restored the fix, reran — all pass.
+- `pytest tests/ -v` → **68/68 passing** (65 existing + 3 new).
+- `python3 -m py_compile stock_advisor.py` — clean.
+- No changes to scoring math, weights, or any analyzer — this is a state-
+  isolation/cache-correctness fix, not a scoring behavior change.
+
+**PR**: opened from branch `fix/profile-global-state-mutation` against
+`main`, based on latest `main` (includes the 08-18/#5/#8 merges).
+
+**What a stranger should do next:**
+1. Get a human to review the growing backlog: this repo's #6 (12 days), #7
+   (9 days), #9 (1 day, NarrativeEngine tests), and this session's new fix
+   PR, plus Crypto_Stockbot's #2 (14 days). Five open PRs across both repos
+   again, all still independently verified and non-overlapping.
+2. Re-check Yahoo/exchange egress before assuming another blocked day —
+   19th consecutive day for Yahoo Finance here (since 2026-08-02), 15th for
+   Crypto_Stockbot's exchange hosts.
+3. Next scoring-quality/data-robustness candidates, now that the profile
+   state bug is fixed: (a) the real `--ticker` smoke test against a sparse
+   ticker, still blocked on egress; (b) worth a closer read of
+   `RecommendationEngine.recommend` and `InvestmentBriefEngine` for similar
+   shared-mutable-state issues, since this bug's root cause (a `.get()`
+   fallback returning a live reference into a module-level dict) is a
+   pattern, not a one-off — grep for other `<GLOBAL_DICT>.get(key,
+   <GLOBAL_DICT>[...])` shapes before assuming it's isolated to this one
+   spot.
