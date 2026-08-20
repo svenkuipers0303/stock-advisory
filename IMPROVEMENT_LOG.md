@@ -310,6 +310,78 @@ fix, even though this session found it clean.
 
 **Status update from the merging session (2026-08-18): merged as PR #5.**
 
+### 2026-08-10 (test coverage — PortfolioManager, mocked yfinance + tmp file, no network)
+
+**Checked `list_pull_requests` first, per this log's own rule** (the 2026-08-05
+entry above is exactly why). Found **PR #5** ("Add regression tests for the
+2026-08-03 zero-price divide-by-zero fix"), opened 2026-08-06, still open and
+unreviewed — its own log entry lives only inside that PR's diff, same
+coordination gap the 2026-08-05 entry documented, just recurring: `main`'s copy
+of this file has no record of it. Nothing in #5 overlaps this session's work
+(it edits `tests/test_scoring.py`; this session adds a new file), so no
+duplication risk — left #5 alone for a human to review/merge, didn't touch it.
+
+**Yahoo Finance still egress-blocked** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`, all 403 at CONNECT, re-checked this session). While
+checking, also re-verified the sibling crypto repo's blocker and tested three
+exchange APIs never tried before (Kraken, Coinbase, Bybit) — all also 403. This
+looks like a **category-wide market-data-host policy denial** in this
+environment, not a narrow per-domain allowlist gap (full detail in
+Crypto_Stockbot's `BACKTEST_LOG.md`, 2026-08-10 entry). So the real `--ticker`
+smoke test against genuinely sparse tickers, flagged as next-up since
+2026-08-04, is still not reachable from here.
+
+**Picked `PortfolioManager` from the open test-coverage gap list** — the
+2026-08-04/08-05 entries flagged it as needing "filesystem + yfinance mocking,
+not synthetic-input unit tests," the only remaining checklist gap that
+description fits (`NarrativeEngine`/`ReportGenerator`/`StockAdvisor` are lower
+priority or better suited to integration-style tests per those same entries).
+
+**Added `tests/test_portfolio.py`** (15 tests, `unittest.mock.patch` on
+`stock_advisor.yf.Ticker` + pytest `tmp_path` for the JSON file — no real
+filesystem writes outside the temp dir, no network):
+- `_ensure_file`/`load`/`save`: default structure on first use, doesn't clobber
+  existing data, save→load roundtrips.
+- `get_summary`: correct price/value/pnl/pnl_pct for winning and losing
+  positions, multiple holdings summed independently, plus the three edge cases
+  the code's own guards exist for — a `yf.Ticker` exception falls back to a
+  zeroed holding instead of crashing (`except Exception`), an empty
+  price-history response falls back to price 0 instead of an `IndexError` on
+  `.iloc[-1]` (`if not info.empty`), and zero total-invested doesn't
+  divide-by-zero on `total_pnl_pct` (`if invested > 0`).
+- `generate_warnings`: concentration (>35%), loss alert (<-15%), and trend
+  warning (analysis trend_score <30) each fire correctly and don't false-fire
+  just under their thresholds; zero total_value doesn't raise.
+
+**Verification**: `pytest tests/ -v` → **73/73 passing** (58 scoring + 15 new
+portfolio; independent of PR #5's two pending regression tests — different
+files, no conflict either way #5 resolves). `python3 -m py_compile
+stock_advisor.py` clean (test-only PR, no changes to `stock_advisor.py`).
+**Mutation-tested two of the new assertions against deliberately broken code**,
+not just confirmed they pass today: (1) changed the concentration threshold
+from `35` to `350` — confirmed `test_flags_concentration_above_35_percent`
+fails; (2) changed `pnl = value - invested` to `pnl = value` — confirmed both
+pnl tests fail with the wrong numeric value in the assertion diff. Reverted
+both from a saved backup, re-ran the full suite clean (73/73 again). Real
+regression coverage, not tests matched to whatever the code already does.
+
+**PR**: opened from branch `test/portfolio-manager-coverage` against `main`.
+
+**Next step for tomorrow's run**: (1) check `list_pull_requests` first — there
+may be up to two open test-only PRs (#5 and this one) by the time you read
+this; they touch different files so merge order doesn't matter, but confirm no
+new coordination gap has appeared before adding a third. (2) Re-check egress
+(Yahoo Finance for this repo; Binance/CoinGecko/Kraken/Coinbase/Bybit for the
+crypto repo) before assuming another blocked day — if any opens up, the real
+`--ticker` smoke test against genuinely sparse tickers (not yet attempted with
+live data since 2026-08-04) is the highest-value remaining item here. (3) If
+egress stays blocked, the two test-coverage gaps left from the original
+checklist are `NarrativeEngine` (low priority, no scoring logic to regress) and
+`ReportGenerator`/`StockAdvisor` top-level orchestration (integration-style,
+mocked `DataFetcher` rather than unit tests).
+
+**Status update from the merging session (2026-08-18): merged as PR #6.**
+
 ### 2026-08-12 (test coverage — StockAdvisor/ReportGenerator integration tests; three more PRs found already open)
 
 **Checked `list_pull_requests` first, per this file's own repeated lesson.**
