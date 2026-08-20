@@ -310,6 +310,78 @@ fix, even though this session found it clean.
 
 **Status update from the merging session (2026-08-18): merged as PR #5.**
 
+### 2026-08-10 (test coverage — PortfolioManager, mocked yfinance + tmp file, no network)
+
+**Checked `list_pull_requests` first, per this log's own rule** (the 2026-08-05
+entry above is exactly why). Found **PR #5** ("Add regression tests for the
+2026-08-03 zero-price divide-by-zero fix"), opened 2026-08-06, still open and
+unreviewed — its own log entry lives only inside that PR's diff, same
+coordination gap the 2026-08-05 entry documented, just recurring: `main`'s copy
+of this file has no record of it. Nothing in #5 overlaps this session's work
+(it edits `tests/test_scoring.py`; this session adds a new file), so no
+duplication risk — left #5 alone for a human to review/merge, didn't touch it.
+
+**Yahoo Finance still egress-blocked** (`query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com`, all 403 at CONNECT, re-checked this session). While
+checking, also re-verified the sibling crypto repo's blocker and tested three
+exchange APIs never tried before (Kraken, Coinbase, Bybit) — all also 403. This
+looks like a **category-wide market-data-host policy denial** in this
+environment, not a narrow per-domain allowlist gap (full detail in
+Crypto_Stockbot's `BACKTEST_LOG.md`, 2026-08-10 entry). So the real `--ticker`
+smoke test against genuinely sparse tickers, flagged as next-up since
+2026-08-04, is still not reachable from here.
+
+**Picked `PortfolioManager` from the open test-coverage gap list** — the
+2026-08-04/08-05 entries flagged it as needing "filesystem + yfinance mocking,
+not synthetic-input unit tests," the only remaining checklist gap that
+description fits (`NarrativeEngine`/`ReportGenerator`/`StockAdvisor` are lower
+priority or better suited to integration-style tests per those same entries).
+
+**Added `tests/test_portfolio.py`** (15 tests, `unittest.mock.patch` on
+`stock_advisor.yf.Ticker` + pytest `tmp_path` for the JSON file — no real
+filesystem writes outside the temp dir, no network):
+- `_ensure_file`/`load`/`save`: default structure on first use, doesn't clobber
+  existing data, save→load roundtrips.
+- `get_summary`: correct price/value/pnl/pnl_pct for winning and losing
+  positions, multiple holdings summed independently, plus the three edge cases
+  the code's own guards exist for — a `yf.Ticker` exception falls back to a
+  zeroed holding instead of crashing (`except Exception`), an empty
+  price-history response falls back to price 0 instead of an `IndexError` on
+  `.iloc[-1]` (`if not info.empty`), and zero total-invested doesn't
+  divide-by-zero on `total_pnl_pct` (`if invested > 0`).
+- `generate_warnings`: concentration (>35%), loss alert (<-15%), and trend
+  warning (analysis trend_score <30) each fire correctly and don't false-fire
+  just under their thresholds; zero total_value doesn't raise.
+
+**Verification**: `pytest tests/ -v` → **73/73 passing** (58 scoring + 15 new
+portfolio; independent of PR #5's two pending regression tests — different
+files, no conflict either way #5 resolves). `python3 -m py_compile
+stock_advisor.py` clean (test-only PR, no changes to `stock_advisor.py`).
+**Mutation-tested two of the new assertions against deliberately broken code**,
+not just confirmed they pass today: (1) changed the concentration threshold
+from `35` to `350` — confirmed `test_flags_concentration_above_35_percent`
+fails; (2) changed `pnl = value - invested` to `pnl = value` — confirmed both
+pnl tests fail with the wrong numeric value in the assertion diff. Reverted
+both from a saved backup, re-ran the full suite clean (73/73 again). Real
+regression coverage, not tests matched to whatever the code already does.
+
+**PR**: opened from branch `test/portfolio-manager-coverage` against `main`.
+
+**Next step for tomorrow's run**: (1) check `list_pull_requests` first — there
+may be up to two open test-only PRs (#5 and this one) by the time you read
+this; they touch different files so merge order doesn't matter, but confirm no
+new coordination gap has appeared before adding a third. (2) Re-check egress
+(Yahoo Finance for this repo; Binance/CoinGecko/Kraken/Coinbase/Bybit for the
+crypto repo) before assuming another blocked day — if any opens up, the real
+`--ticker` smoke test against genuinely sparse tickers (not yet attempted with
+live data since 2026-08-04) is the highest-value remaining item here. (3) If
+egress stays blocked, the two test-coverage gaps left from the original
+checklist are `NarrativeEngine` (low priority, no scoring logic to regress) and
+`ReportGenerator`/`StockAdvisor` top-level orchestration (integration-style,
+mocked `DataFetcher` rather than unit tests).
+
+**Status update from the merging session (2026-08-18): merged as PR #6.**
+
 ### 2026-08-11 (test coverage — added InvestmentBriefEngine coverage; two more PRs found already open)
 
 **Before starting, checked `list_pull_requests` first** (per this file's own
@@ -639,3 +711,188 @@ be noise, not new information.
 3. If the backlog is still fully untouched next time, these infra-only
    entries can likely drop to one line — the substance hasn't changed
    since 08-13.
+
+### 2026-08-19 (test coverage — NarrativeEngine, 26 tests; backlog is moving: #5 and #8 merged directly by the human)
+
+**`list_pull_requests` checked first.** Good news since the 08-18 entry:
+**#5 and #8 were merged directly to `main` yesterday** (`merged_by:
+svenkuipers0303`, no review comments left — both just merged). `main` now
+has 65 passing tests (was 58). **#6** ("PortfolioManager test coverage",
+opened 08-10, now 9 days old) and **#7** ("InvestmentBriefEngine test
+coverage", opened 08-11, 8 days old) are still open with zero comments —
+re-verified via `get_comments`, not just `updated_at`. Crypto_Stockbot's PR
+#2 is also still open, zero activity, now 13 days old. So the cross-repo
+backlog is smaller than it's been since 08-11 (3 open vs. the 5 peak), and
+it's moving — no new notification sent, since the human already knows they
+did the merging.
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all 403 at the CONNECT tunnel stage — identical to every
+check since 2026-08-02 (cross-checked against Crypto_Stockbot's exchange
+hosts today too, also still blocked, 14th consecutive day there). No
+live-data work was possible this session.
+
+**What was added**: pulled `main` (fast-forwarded through the #5/#8 merges
+first — the local checkout was 9 commits behind) then picked the last item
+on this log's original test-coverage checklist that #6/#7 don't already
+cover: `NarrativeEngine` (`_summary`/`_bull_case`/`_bear_case`/
+`_beginner_note`/`_risk_note`/`generate`) — pure text-generation logic, no
+scoring math, previously untested. Flagged low-priority in every prior entry
+that mentioned it, but it's cheap, non-overlapping, and closes out the
+checklist.
+
+Added `tests/test_narrative.py` (26 tests) covering:
+- `_summary`: all 4 score-bucket openers, PE-bucket phrasing, revenue
+  growth/decline lines, margin/moat line, sector-theme lookup (present and
+  absent-sector cases), full ETF path (description/why/expense-ratio cost
+  label at both thresholds/dividend line/overlap line, including the
+  zero-dividend and no-overlap omission cases).
+- `_bull_case`: empty-factors fallback string, growth/health/trend factors,
+  the `[:3]` truncation (confirmed a 4-factor setup still joins to exactly
+  3), ETF path (why/dividend-yield/expense-ratio lines).
+- `_bear_case`: empty-factors fallback, high-PE/beta/debt-to-equity
+  triggers, `[:3]` truncation, the `margin != 0` guard (a genuinely-missing
+  margin field must not read as "thin margins"), ETF path (market-correction
+  line always appended, stock-only checks skipped).
+- `_beginner_note`: ETF dividend-line inclusion/omission by yield threshold,
+  all 4 market-cap-label buckets, PE-note present/absent.
+- `_risk_note`: all 4 risk-level buckets, beta formatting.
+- `generate()`: full 5-key dict shape for the stock path, ETF-info-truthy
+  switching to the ETF path, and the `is_etf = bool(etf_info)` edge case
+  (an *empty* `etf_info={}` dict must still fall through to the stock path,
+  not crash on missing ETF keys) — this last one is the only case here that
+  found genuinely non-obvious behavior worth pinning explicitly.
+
+**Verification**:
+- `pytest tests/ -v` → **91/91 passing** (65 existing + 26 new).
+- `python3 -m py_compile stock_advisor.py` — clean, no code changes (test-only PR).
+- **Mutation-tested**: changed `_risk_note`'s `LOW RISK` threshold from
+  `rs >= 72` to `rs >= 172` (so no score can ever qualify), confirmed
+  `test_all_four_risk_buckets_produce_distinct_levels` **failed** as
+  expected (`LOW RISK` never appeared), reverted from `/tmp` backup, re-ran
+  the full suite clean (91/91). Also caught two real bugs in the tests
+  themselves before landing: two hand-built scenarios tripped the
+  `bull_case()`/`_bull_case`'s own `[:3]` cap, silently truncating the
+  factor the assertion was checking for — fixed by narrowing each
+  scenario's inputs to leave room for the factor under test, not by
+  loosening the assertions.
+
+**No changes to `stock_advisor.py`** — test-only PR, same pattern as
+#1/#3/#5/#6/#7/#8.
+
+**PR**: opened from branch `test/narrative-engine-coverage` against `main`.
+
+**What a stranger should do next**:
+1. **Test-coverage checklist is now fully closed** (scoring engine, zero-price
+   regression, PortfolioManager [PR #6, unmerged], InvestmentBriefEngine
+   [PR #7, unmerged], StockAdvisor/ReportGenerator integration, and now
+   NarrativeEngine). Once #6/#7 merge, there's no further item on the
+   original checklist — the next task should come from the other two
+   checklist categories (data robustness, scoring quality against known
+   cases) rather than more test-file additions for their own sake.
+2. Get a human to review the 3 remaining open PRs: this repo's #6 (9 days)
+   and #7 (8 days), plus Crypto_Stockbot's #2 (13 days). All three are
+   still well-verified and non-overlapping with each other.
+3. Re-check Yahoo Finance and the crypto exchange hosts before assuming
+   another blocked day — once live data is reachable, the real `--ticker`
+   smoke test against a genuinely sparse ticker (open since 2026-08-04) is
+   still the highest-value data-robustness item, and hasn't been attempted
+   with real data yet in either repo.
+4. Check `list_pull_requests` before starting next time, not just this file.
+
+### 2026-08-20 (bug fix — StockAdvisor.__init__ mutated the shared USER_PROFILES dict; scoring-quality category, not test coverage)
+
+**Egress re-tested** (`query1`/`query2.finance.yahoo.com`, `finance.yahoo.com`
+vs `pypi.org` control): still 403 at the CONNECT tunnel stage, identical
+pattern to every check since 08-02. Crypto_Stockbot's exchange hosts are also
+still blocked (see that repo's BACKTEST_LOG.md 2026-08-20 entry). No live-data
+work possible.
+
+**`list_pull_requests` checked first.** #6 (12 days), #7 (9 days) unchanged,
+zero comments/reviews (re-verified via `get_comments`/`get_reviews`, not just
+`updated_at`). #9 (`NarrativeEngine` tests, opened 08-19) is also still zero
+activity. No backlog movement since the 08-19 entry (visible in PR #9's own
+diff, not yet on `main` — that PR correctly notes the test-coverage checklist
+is now closed once #6/#7 land, and that the next item should come from data
+robustness or scoring quality rather than more test files).
+
+**Picked a scoring-quality item, per that guidance**, and found a real bug
+by reading `StockAdvisor.__init__` closely (same approach that found the
+2026-08-03 divide-by-zero bug) rather than adding another synthetic test on
+top of already-covered scoring functions:
+
+```python
+profile_key   = profile_name or CONFIG["default_profile"]
+self.profile  = USER_PROFILES.get(profile_key, USER_PROFILES["balanced"])
+self.profile["key"] = profile_key
+```
+
+`USER_PROFILES.get(...)` returns a **reference** to the module-level dict,
+not a copy. `self.profile["key"] = profile_key` therefore mutates the
+*shared global* `USER_PROFILES` entry in place. Confirmed with a live repro
+(see below) that an invalid/typo'd `--profile` name (e.g. `grwoth`) falls
+back to `USER_PROFILES["balanced"]` as intended, but then permanently writes
+`"key": "grwoth"` into the real global `balanced` profile — for the rest of
+the process. The report/analysis itself still correctly uses balanced's
+weights and labels (those are read directly off the mutated-but-otherwise-
+intact dict), but `_write_cache()` reads `self.profile.get("key", "balanced")`
+into the cache JSON — so the cache would report the analysis was run under
+profile `"grwoth"` (a name that doesn't exist) when it was actually run
+under `balanced`. In a long-running process instantiating `StockAdvisor`
+more than once (tests, a future service wrapper), this also meant *every*
+profile dict was a live shared object — two instances holding the "same"
+profile were holding the same object, not independent copies.
+
+**Fix**: copy the profile dict instead of aliasing it, and validate the key
+before falling back — so the cache records the profile that was *actually*
+applied, not the user's typo, and a bad `--profile` value is printed to the
+user instead of silently swapping their risk profile with no notice:
+
+```python
+profile_key = profile_name or CONFIG["default_profile"]
+if profile_key not in USER_PROFILES:
+    print(f"  Unknown profile '{profile_key}' — falling back to 'balanced'.")
+    profile_key = "balanced"
+self.profile = dict(USER_PROFILES[profile_key])
+self.profile["key"] = profile_key
+```
+
+**Verification**:
+- Live repro script confirmed the bug pre-fix (`adv.profile is
+  USER_PROFILES["balanced"]` → `True`; `USER_PROFILES["balanced"]["key"]`
+  permanently became `"grwoth"`) and confirmed it's gone post-fix (`is` now
+  `False`, global dict has no `"key"` field at all, `adv.profile["key"]`
+  correctly reads `"balanced"`).
+- Added `TestProfileSelection` (3 tests) to `tests/test_integration.py`:
+  valid profile doesn't mutate the global; an unknown profile falls back
+  without corrupting `USER_PROFILES["balanced"]` and prints a warning;
+  two advisors with different profiles don't share state.
+- **Mutation-tested for real**: reverted `stock_advisor.py` to the exact
+  pre-fix code, reran the 3 new tests — all 3 failed with the precise
+  corruption described above, confirming they'd have caught this bug.
+  Restored the fix, reran — all pass.
+- `pytest tests/ -v` → **68/68 passing** (65 existing + 3 new).
+- `python3 -m py_compile stock_advisor.py` — clean.
+- No changes to scoring math, weights, or any analyzer — this is a state-
+  isolation/cache-correctness fix, not a scoring behavior change.
+
+**PR**: opened from branch `fix/profile-global-state-mutation` against
+`main`, based on latest `main` (includes the 08-18/#5/#8 merges).
+
+**What a stranger should do next:**
+1. Get a human to review the growing backlog: this repo's #6 (12 days), #7
+   (9 days), #9 (1 day, NarrativeEngine tests), and this session's new fix
+   PR, plus Crypto_Stockbot's #2 (14 days). Five open PRs across both repos
+   again, all still independently verified and non-overlapping.
+2. Re-check Yahoo/exchange egress before assuming another blocked day —
+   19th consecutive day for Yahoo Finance here (since 2026-08-02), 15th for
+   Crypto_Stockbot's exchange hosts.
+3. Next scoring-quality/data-robustness candidates, now that the profile
+   state bug is fixed: (a) the real `--ticker` smoke test against a sparse
+   ticker, still blocked on egress; (b) worth a closer read of
+   `RecommendationEngine.recommend` and `InvestmentBriefEngine` for similar
+   shared-mutable-state issues, since this bug's root cause (a `.get()`
+   fallback returning a live reference into a module-level dict) is a
+   pattern, not a one-off — grep for other `<GLOBAL_DICT>.get(key,
+   <GLOBAL_DICT>[...])` shapes before assuming it's isolated to this one
+   spot.
