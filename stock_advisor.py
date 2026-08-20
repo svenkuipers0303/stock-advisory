@@ -1728,8 +1728,11 @@ class StockAdvisor:
         self.reporter      = ReportGenerator()
         self._regime_data  = {}
 
-        profile_key   = profile_name or CONFIG["default_profile"]
-        self.profile  = USER_PROFILES.get(profile_key, USER_PROFILES["balanced"])
+        profile_key = profile_name or CONFIG["default_profile"]
+        if profile_key not in USER_PROFILES:
+            print(f"  Unknown profile '{profile_key}' — falling back to 'balanced'.")
+            profile_key = "balanced"
+        self.profile = dict(USER_PROFILES[profile_key])
         self.profile["key"] = profile_key
 
     def _get_category(self, ticker: str) -> tuple:

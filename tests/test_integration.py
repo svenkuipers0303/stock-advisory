@@ -174,3 +174,54 @@ class TestGenerateHtml:
         )
 
         assert isinstance(html, str) and len(html) > 0
+
+
+# ─────────────────────────────────────────────────────────────
+#  StockAdvisor.__init__ — profile selection
+# ─────────────────────────────────────────────────────────────
+class TestProfileSelection:
+    """
+    Regression coverage for a bug where __init__ mutated the module-level
+    USER_PROFILES dict in place (`self.profile = USER_PROFILES.get(...)`
+    returns a reference, not a copy). An invalid --profile name silently
+    fell back to 'balanced' but wrote the invalid name into the *shared*
+    'balanced' dict's "key" field, permanently corrupting it for every
+    later StockAdvisor instance in the same process — and making the
+    cached "key" (read by _write_cache) lie about which profile was
+    actually applied.
+    """
+
+    def test_valid_profile_does_not_mutate_the_global_dict(self, tmp_path):
+        with patch.dict(stock_advisor.CONFIG, {"portfolio_file": str(tmp_path / "p.json")}):
+            baseline = dict(USER_PROFILES["dividend"])
+            advisor = StockAdvisor(profile_name="dividend")
+
+            assert advisor.profile is not USER_PROFILES["dividend"]
+            assert advisor.profile["key"] == "dividend"
+            assert "key" not in USER_PROFILES["dividend"]
+            assert USER_PROFILES["dividend"] == baseline
+
+    def test_unknown_profile_falls_back_to_balanced_without_corrupting_it(self, tmp_path, capsys):
+        with patch.dict(stock_advisor.CONFIG, {"portfolio_file": str(tmp_path / "p.json")}):
+            baseline = dict(USER_PROFILES["balanced"])
+            advisor = StockAdvisor(profile_name="grwoth")
+
+            # Falls back to balanced's actual weights/labels...
+            assert advisor.profile["label"] == USER_PROFILES["balanced"]["label"]
+            # ...and records the profile it actually used, not the typo.
+            assert advisor.profile["key"] == "balanced"
+            # The global dict itself must stay untouched, including for
+            # any later StockAdvisor instance in this same process.
+            assert "key" not in USER_PROFILES["balanced"]
+            assert USER_PROFILES["balanced"] == baseline
+            assert "grwoth" in capsys.readouterr().out
+
+    def test_two_advisors_with_different_profiles_do_not_cross_contaminate(self, tmp_path):
+        with patch.dict(stock_advisor.CONFIG, {"portfolio_file": str(tmp_path / "p.json")}):
+            growth_adv = StockAdvisor(profile_name="growth")
+            balanced_adv = StockAdvisor(profile_name="balanced")
+
+            assert growth_adv.profile["key"] == "growth"
+            assert balanced_adv.profile["key"] == "balanced"
+            assert "key" not in USER_PROFILES["growth"]
+            assert "key" not in USER_PROFILES["balanced"]
