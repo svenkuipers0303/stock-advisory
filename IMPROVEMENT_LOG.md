@@ -551,6 +551,94 @@ be noise, not new information.
    entries can likely drop to one line — the substance hasn't changed
    since 08-13.
 
+### 2026-08-19 (test coverage — NarrativeEngine, 26 tests; backlog is moving: #5 and #8 merged directly by the human)
+
+**`list_pull_requests` checked first.** Good news since the 08-18 entry:
+**#5 and #8 were merged directly to `main` yesterday** (`merged_by:
+svenkuipers0303`, no review comments left — both just merged). `main` now
+has 65 passing tests (was 58). **#6** ("PortfolioManager test coverage",
+opened 08-10, now 9 days old) and **#7** ("InvestmentBriefEngine test
+coverage", opened 08-11, 8 days old) are still open with zero comments —
+re-verified via `get_comments`, not just `updated_at`. Crypto_Stockbot's PR
+#2 is also still open, zero activity, now 13 days old. So the cross-repo
+backlog is smaller than it's been since 08-11 (3 open vs. the 5 peak), and
+it's moving — no new notification sent, since the human already knows they
+did the merging.
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all 403 at the CONNECT tunnel stage — identical to every
+check since 2026-08-02 (cross-checked against Crypto_Stockbot's exchange
+hosts today too, also still blocked, 14th consecutive day there). No
+live-data work was possible this session.
+
+**What was added**: pulled `main` (fast-forwarded through the #5/#8 merges
+first — the local checkout was 9 commits behind) then picked the last item
+on this log's original test-coverage checklist that #6/#7 don't already
+cover: `NarrativeEngine` (`_summary`/`_bull_case`/`_bear_case`/
+`_beginner_note`/`_risk_note`/`generate`) — pure text-generation logic, no
+scoring math, previously untested. Flagged low-priority in every prior entry
+that mentioned it, but it's cheap, non-overlapping, and closes out the
+checklist.
+
+Added `tests/test_narrative.py` (26 tests) covering:
+- `_summary`: all 4 score-bucket openers, PE-bucket phrasing, revenue
+  growth/decline lines, margin/moat line, sector-theme lookup (present and
+  absent-sector cases), full ETF path (description/why/expense-ratio cost
+  label at both thresholds/dividend line/overlap line, including the
+  zero-dividend and no-overlap omission cases).
+- `_bull_case`: empty-factors fallback string, growth/health/trend factors,
+  the `[:3]` truncation (confirmed a 4-factor setup still joins to exactly
+  3), ETF path (why/dividend-yield/expense-ratio lines).
+- `_bear_case`: empty-factors fallback, high-PE/beta/debt-to-equity
+  triggers, `[:3]` truncation, the `margin != 0` guard (a genuinely-missing
+  margin field must not read as "thin margins"), ETF path (market-correction
+  line always appended, stock-only checks skipped).
+- `_beginner_note`: ETF dividend-line inclusion/omission by yield threshold,
+  all 4 market-cap-label buckets, PE-note present/absent.
+- `_risk_note`: all 4 risk-level buckets, beta formatting.
+- `generate()`: full 5-key dict shape for the stock path, ETF-info-truthy
+  switching to the ETF path, and the `is_etf = bool(etf_info)` edge case
+  (an *empty* `etf_info={}` dict must still fall through to the stock path,
+  not crash on missing ETF keys) — this last one is the only case here that
+  found genuinely non-obvious behavior worth pinning explicitly.
+
+**Verification**:
+- `pytest tests/ -v` → **91/91 passing** (65 existing + 26 new).
+- `python3 -m py_compile stock_advisor.py` — clean, no code changes (test-only PR).
+- **Mutation-tested**: changed `_risk_note`'s `LOW RISK` threshold from
+  `rs >= 72` to `rs >= 172` (so no score can ever qualify), confirmed
+  `test_all_four_risk_buckets_produce_distinct_levels` **failed** as
+  expected (`LOW RISK` never appeared), reverted from `/tmp` backup, re-ran
+  the full suite clean (91/91). Also caught two real bugs in the tests
+  themselves before landing: two hand-built scenarios tripped the
+  `bull_case()`/`_bull_case`'s own `[:3]` cap, silently truncating the
+  factor the assertion was checking for — fixed by narrowing each
+  scenario's inputs to leave room for the factor under test, not by
+  loosening the assertions.
+
+**No changes to `stock_advisor.py`** — test-only PR, same pattern as
+#1/#3/#5/#6/#7/#8.
+
+**PR**: opened from branch `test/narrative-engine-coverage` against `main`.
+
+**What a stranger should do next**:
+1. **Test-coverage checklist is now fully closed** (scoring engine, zero-price
+   regression, PortfolioManager [PR #6, unmerged], InvestmentBriefEngine
+   [PR #7, unmerged], StockAdvisor/ReportGenerator integration, and now
+   NarrativeEngine). Once #6/#7 merge, there's no further item on the
+   original checklist — the next task should come from the other two
+   checklist categories (data robustness, scoring quality against known
+   cases) rather than more test-file additions for their own sake.
+2. Get a human to review the 3 remaining open PRs: this repo's #6 (9 days)
+   and #7 (8 days), plus Crypto_Stockbot's #2 (13 days). All three are
+   still well-verified and non-overlapping with each other.
+3. Re-check Yahoo Finance and the crypto exchange hosts before assuming
+   another blocked day — once live data is reachable, the real `--ticker`
+   smoke test against a genuinely sparse ticker (open since 2026-08-04) is
+   still the highest-value data-robustness item, and hasn't been attempted
+   with real data yet in either repo.
+4. Check `list_pull_requests` before starting next time, not just this file.
+
 ### 2026-08-20 (bug fix — StockAdvisor.__init__ mutated the shared USER_PROFILES dict; scoring-quality category, not test coverage)
 
 **Egress re-tested** (`query1`/`query2.finance.yahoo.com`, `finance.yahoo.com`
