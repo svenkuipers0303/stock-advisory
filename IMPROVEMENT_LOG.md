@@ -807,3 +807,79 @@ self.profile["key"] = profile_key
    pattern, not a one-off — grep for other `<GLOBAL_DICT>.get(key,
    <GLOBAL_DICT>[...])` shapes before assuming it's isolated to this one
    spot.
+
+### 2026-08-21 (status check + shared-mutable-state audit — egress still blocked, 20th day; backlog nearly clear; audit came up empty, valid negative result)
+
+**`list_pull_requests` checked first.** Good news: **#6 and #10 (the
+profile-mutation fix) are now merged**, on top of #5/#8/#9 already merged
+earlier — `main` now has 68 passing tests plus the profile-copy fix. Only
+**PR #7** ("InvestmentBriefEngine test coverage, 37 tests") remains open,
+10 days old (opened 08-11), still zero review activity. Cross-repo backlog
+is down to just two PRs total: this repo's #7 and Crypto_Stockbot's new
+PR #3 (opened this session — see that repo's log).
+
+**Yahoo Finance re-tested, still blocked**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all still `403` at the CONNECT tunnel stage, same
+pattern as every check since 2026-08-02 — 20th consecutive day. No
+live-data work was possible this session (cross-checked against
+Crypto_Stockbot's exchange hosts today too, also still blocked there).
+
+**Did the audit the 08-20 entry flagged**: grepped `stock_advisor.py` for
+the same shape of bug that caused the `USER_PROFILES` mutation (a `.get()`/
+indexing lookup into a module-level constant dict — `CONFIG`, `WATCHLIST`,
+`ETF_KNOWLEDGE`, `USER_PROFILES`, `MARKET_TICKERS`, `SECTOR_THEMES` — held
+without copying, then later given a new/changed key). Checked every
+dict-key-assignment statement in the file (`grep -n '\["\w*"\] = '`) against
+where its target variable originated: only 4 hits total, one is the
+already-fixed `self.profile["key"] = ...` (now copies via `dict(...)`
+first), the other three (`result[name]`, `analyses[ticker]` x2) all assign
+into dicts created locally in the same function, not shared globals — no
+aliasing risk. Separately checked every read site of `ETF_KNOWLEDGE`,
+`WATCHLIST`, and `MARKET_TICKERS` for any `[key] =` mutation downstream of
+a `.get()`/lookup — found none; all three are read-only everywhere they're
+used (`RecommendationEngine.recommend`'s `etf_info: ETF_KNOWLEDGE.get(ticker)`
+included — that reference is only ever read from, in `ReportGenerator`).
+**Audit result: negative — the profile bug was isolated, not a recurring
+pattern.**
+
+**Also did a closer correctness read of `RecommendationEngine.recommend`
+and `InvestmentBriefEngine`** (the two classes named in 08-20's "worth a
+closer read" note), independent of the aliasing-specific audit above —
+checked budget-overspend edge cases (`amount = max(amount, 5.0)` can only
+raise `amount` up to the `available < 5: continue` floor, so it can't push
+spend past `etf_budget`/`stock_budget`; verified by tracing the invariant
+across iterations, not just a single case), the exception-fallback record's
+shape (`analyses[ticker]` on the except path includes every key
+`RecommendationEngine`/`InvestmentBriefEngine` actually reads — `score`,
+`label`, `color` all present, confirmed against `test_integration.py`'s
+existing fallback-shape test), and `InvestmentBriefEngine`'s
+`alloc_stocks = max(0, 85 - profile["etf_pct"])` (only makes sense as
+"100% = etf + stocks + 15% cash", which holds for all six built-in
+`USER_PROFILES` since none exceeds `etf_pct=85`, but would silently produce
+an allocation that doesn't sum to 100 for a future profile with
+`etf_pct > 85` — flagging as a fragility worth knowing about, not fixing
+speculatively since no such profile exists today and the fix would be
+guessing at intended behavical for a case that can't currently occur).
+**No bug found in either class this session** — a real, checked negative
+result, not skipped.
+
+**No code changes this session** — nothing concrete enough to justify a PR
+against an audit that came up empty; the alloc_stocks fragility above is
+noted for whoever adds a profile with `etf_pct > 85` in the future, not
+acted on speculatively today. This entry is committed directly to `main`
+(log-only), same established exception as prior status-only sessions.
+
+**What a stranger should do next:**
+1. Get a human to review PR #7 (10 days, InvestmentBriefEngine tests) here,
+   and Crypto_Stockbot's new PR #3 (state-persistence fix opened this
+   session).
+2. Re-check Yahoo Finance and the crypto exchange hosts before assuming
+   another blocked day — 20th day here, 16th for Crypto_Stockbot.
+3. The real `--ticker` smoke test against a genuinely sparse live ticker is
+   still the single highest-value data-robustness item once egress opens —
+   open since 2026-08-04, never yet attempted with real data.
+4. If a future profile is ever added to `USER_PROFILES` with
+   `etf_pct > 85`, revisit `InvestmentBriefEngine.generate`'s
+   `alloc_stocks`/`alloc_cash` math (currently assumes `etf_pct <= 85` so
+   the three allocations sum to 100) — not urgent today, just flagged so
+   it isn't rediscovered from scratch.
