@@ -372,9 +372,9 @@ class MarketRegimeDetector:
             else:
                 signals.append(("NEUTRAL", f"VIX {vix:.1f} — moderate uncertainty in the market"))
 
-        if "nasdaq" in market_data:
+        if "nasdaq" in market_data and len(market_data["nasdaq"]) >= 200:
             nq    = market_data["nasdaq"]
-            ma200 = nq.iloc[-200:].mean() if len(nq) >= 200 else nq.mean()
+            ma200 = nq.iloc[-200:].mean()
             if nq.iloc[-1] > ma200:
                 bull_pts += 1
                 signals.append(("BULLISH", "Nasdaq above 200-day average — technology sector healthy"))
