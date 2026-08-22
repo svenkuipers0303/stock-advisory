@@ -412,6 +412,26 @@ class TestMarketRegimeDetector:
         assert result["regime"] == "NEUTRAL"
         assert result["signals"] == []
 
+    def test_sparse_nasdaq_history_does_not_fabricate_200day_signal(self):
+        # Only 5 bars available (e.g. a new listing or a partial fetch) — far
+        # short of the 200-day window the signal text claims to compare
+        # against. sp500's own branch abstains below 200 bars; nasdaq must too,
+        # instead of silently substituting mean-of-available-data while still
+        # labeling it "200-day average".
+        nq = self._series([100.0, 101.0, 99.0, 100.5, 100.2])
+        result = self.detector.detect({"nasdaq": nq})
+        assert result["signals"] == []
+        assert result["bull_pts"] == 0
+        assert result["bear_pts"] == 0
+        assert result["regime"] == "NEUTRAL"
+
+    def test_sufficient_nasdaq_history_still_signals(self):
+        nq = self._series(list(np.linspace(90, 110, 220)))  # trending up, 220 bars
+        result = self.detector.detect({"nasdaq": nq})
+        assert result["bull_pts"] == 1
+        assert result["bear_pts"] == 0
+        assert any("Nasdaq above 200-day average" in note for _, note in result["signals"])
+
 
 # ─────────────────────────────────────────────────────────────
 #  RecommendationEngine — budget/allocation correctness

@@ -883,3 +883,101 @@ acted on speculatively today. This entry is committed directly to `main`
    `alloc_stocks`/`alloc_cash` math (currently assumes `etf_pct <= 85` so
    the three allocations sum to 100) — not urgent today, just flagged so
    it isn't rediscovered from scratch.
+
+### 2026-08-22 (bug fix — MarketRegimeDetector fabricated a "200-day" Nasdaq signal from sparse data; egress still blocked, 21st day)
+
+**Yahoo Finance re-tested first**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all still `403` at the CONNECT tunnel stage, same
+pattern as every check since 2026-08-02 — 21st consecutive day. Crypto
+exchange hosts checked too (cross-repo habit from recent entries), also
+still blocked. No live-data work was possible this session.
+
+**`list_pull_requests` checked.** PR #7 (InvestmentBriefEngine tests) is
+still open, now 11 days old, zero review activity — unchanged from 08-21.
+No action needed from this session beyond noting it.
+
+**Read `MarketRegimeDetector.detect()` closely** (a class with only light
+existing test coverage — 3 tests, none exercising a sparse-history edge
+case) looking for the same class of issue recent sessions have been
+finding elsewhere: code that computes something correct-looking but
+mislabels it. Found one:
+
+The `"sp500"` branch requires `len(sp) >= 200` before computing a 200-day
+average and contributing a signal — with less history, it correctly
+abstains (no signal, no bull/bear points). The `"nasdaq"` branch had no
+such guard: `ma200 = nq.iloc[-200:].mean() if len(nq) >= 200 else
+nq.mean()` silently substitutes the mean of *whatever's available* (even a
+5-bar series) when history is short, but the emitted signal text
+unconditionally says `"Nasdaq above/below 200-day average"` — a factually
+false label — and that signal still counts at full weight toward
+`bull_pts`/`bear_pts`, even though comparing today's price to the mean of
+the last handful of days is closer to noise than a trend signal.
+Reproduced directly: a 5-point mildly-noisy synthetic series (no real
+trend) produced `('BULLISH', 'Nasdaq above 200-day average — technology
+sector healthy')` and `bull_pts=1` — a confident-sounding, wrong-labeled
+signal from data that shouldn't produce one at all.
+
+**Fix** (`stock_advisor.py`, feature branch
+`advisory/fix-sparse-nasdaq-fake-200day-signal`): the `"nasdaq"` branch now
+requires `len(market_data["nasdaq"]) >= 200` before computing/emitting a
+signal, matching the `"sp500"` branch's existing behavior exactly — no new
+fallback logic invented, just made the two branches consistent.
+
+**Verification**:
+- Reproduced the bug directly against the pre-fix code (see above), then
+  confirmed the fix suppresses it: same 5-point series now yields no
+  signal, `bull_pts=0`, `bear_pts=0`, `regime="NEUTRAL"`.
+- Added two regression tests to `tests/test_scoring.py`:
+  `test_sparse_nasdaq_history_does_not_fabricate_200day_signal` (5 bars →
+  no signal, no points) and `test_sufficient_nasdaq_history_still_signals`
+  (220 bars, uptrend → unchanged existing behavior, signal still fires).
+- **Mutation-tested**: `git stash`-ed just the `stock_advisor.py` fix and
+  re-ran the new sparse-data test against the unmodified code — it fails
+  exactly as expected (`AssertionError`, signal list not empty), confirming
+  the test genuinely exercises the fix rather than passing trivially.
+- Full suite: 109 pre-existing tests + 2 new = **111 passed**, no
+  regressions (the existing bullish/bearish `MarketRegimeDetector` tests
+  use 220-point series, well above the 200-bar threshold, so they're
+  unaffected by this change).
+
+**Not touched**: `dividendYield`'s unit scale (see below), the
+`alloc_stocks`/`etf_pct > 85` fragility flagged 08-21, PR #7, any
+live-data-dependent behavior.
+
+**One thing found but deliberately NOT changed, flagging for whoever gets
+live data access first**: `DividendAnalyzer.analyze()` and two other call
+sites treat `info.get("dividendYield")` as a fraction (e.g. `0.035` for
+3.5%, multiplying by 100 to display). This is internally consistent
+throughout `stock_advisor.py`, but there have been real-world reports
+(outside this repo, not verified against this repo's actual pinned
+`yfinance` version) of Yahoo's backend occasionally returning
+`dividendYield` already scaled as a percentage rather than a fraction. This
+repo has no way to check which behavior the live API currently exhibits
+without live access, and guessing wrong would silently invert a
+significant chunk of `DividendAnalyzer`'s scoring (a 2.5% yield read as
+"250%" would trigger the yield-trap penalty instead of the "attractive
+income" bonus, or vice versa if fixed backwards). **This is exactly what
+the long-standing "real `--ticker` smoke test against a genuinely sparse
+live ticker" checklist item (open since 08-04) should check first once
+egress opens** — specifically, print the raw `dividendYield` value for a
+handful of known real dividend payers (e.g. a stock with a publicly known
+~3% yield) and confirm which scale it's actually in before trusting any
+`DividendAnalyzer` output. Not treating this as urgent since it can't be
+resolved without live data and no user-facing incident has been reported —
+just making sure it's written down rather than rediscovered from scratch.
+
+**What a stranger should do next:**
+1. Review this session's PR
+   (`advisory/fix-sparse-nasdaq-fake-200day-signal`) alongside PR #7 (11
+   days) — both narrow, independently verified, non-conflicting.
+2. Re-check Yahoo Finance / crypto exchange hosts before assuming another
+   blocked day — 21st day here, 18th for Crypto_Stockbot.
+3. **When live access is restored, check `dividendYield`'s scale first**
+   (see above) before trusting `DividendAnalyzer`'s output on any real
+   ticker — this could invalidate or confirm a meaningful chunk of scoring
+   depending on which way it goes.
+4. The real `--ticker` smoke test against a genuinely sparse live ticker
+   (open since 08-04) is still the single highest-value data-robustness
+   item once egress opens.
+5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
+   urgent, not acted on.
