@@ -883,3 +883,91 @@ acted on speculatively today. This entry is committed directly to `main`
    `alloc_stocks`/`alloc_cash` math (currently assumes `etf_pct <= 85` so
    the three allocations sum to 100) — not urgent today, just flagged so
    it isn't rediscovered from scratch.
+
+### 2026-08-23 (status check + close-reading pass on DataFetcher/MarketRegimeDetector/PortfolioManager/NarrativeEngine — egress still blocked, 22nd day; one candidate bug investigated and ruled out; no new PR)
+
+**Egress re-tested first**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all still `403` at the CONNECT tunnel stage, identical
+pattern to every check since 2026-08-02 — 22nd consecutive day. Crypto
+exchange hosts checked too, also still blocked (see Crypto_Stockbot's
+BACKTEST_LOG.md 2026-08-23 entry). No live-data work was possible.
+
+**`list_pull_requests` checked first.** **PR #7** (InvestmentBriefEngine
+tests) is still open, zero review activity, now **12 days old** (opened
+08-11) — the oldest unreviewed item across both repos right now. **PR #11**
+("Fix MarketRegimeDetector fabricating a 200-day Nasdaq signal from sparse
+data", opened 08-22 by the prior session) is fresh, 1 day old, well
+documented and verified — no action needed on it beyond noting it exists.
+Checked whether #7 and #11 would conflict if both merged: they touch
+different areas (`tests/test_integration.py` for #7, `stock_advisor.py` +
+`tests/test_scoring.py` for #11) — safe to review independently.
+
+**Continued the close-reading approach that's found real bugs on 08-03,
+08-20, and 08-22** — this session's target was `DataFetcher`,
+`MarketRegimeDetector` (re-read outside the nasdaq branch PR #11 already
+fixes), `PortfolioManager`, and `NarrativeEngine`, none of which had been
+individually audited this way before (`StockAdvisor.__init__`,
+`RecommendationEngine`, and `InvestmentBriefEngine` were covered on 08-20/
+08-21).
+
+**One candidate found, investigated, and correctly ruled out — a real
+negative result, not a skip**: `AssetAnalyzer.analyze_technicals`'s RSI
+block guards on `if len(close) >= 14:`, but `rolling(14).mean()` on
+`close.diff()` (which drops the first row as `NaN`) actually needs **15**
+closes to produce a non-`NaN` result at the last position — confirmed
+directly with a 14-point synthetic series (`rsi` came back `nan`,
+formatting to the string `"RSI nan — neutral range"` in the notes, no
+crash). This looked like a real off-by-one at first. **But it's
+unreachable**: `analyze_technicals` returns early at line 638
+(`len(history) < 50`) and again at line 642 (`len(close) < 50`, after
+filtering non-positive prices) before ever reaching the RSI block — so
+`close` is always ≥50 entries by the time `len(close) >= 14` is evaluated,
+making that guard permanently true and the `>=14` vs `>=15` distinction
+dead code in the only call path that exists today. Drafted the `>=15` fix
+and a regression test, then reverted both once the reachability check
+showed the bug can't actually fire — matches this repo's own rule against
+"validation for scenarios that can't happen." No other `rolling()` calls
+exist in `stock_advisor.py` (grepped to confirm), so this isn't a pattern
+elsewhere either.
+
+**Also checked `DataFetcher`** (all three `get_*` methods wrap `yfinance`/
+`feedparser` calls in broad `except Exception: return {}`/`pd.DataFrame()`/
+`[]}` — consistent, no bug found) and **`PortfolioManager`** (`get_summary`/
+`generate_warnings` — `alloc = h["current_value"] / total_value * 100`
+guards the zero-portfolio case via `total_value = summary["total_value"] or
+1`; `pnl_pct` guards `invested > 0` before dividing; no bug found, though
+`get_summary`'s per-holding `except Exception` is broad enough to mask a
+malformed holdings-file entry rather than surface it — not fixing
+speculatively since there's no evidence of a real malformed-file case, just
+noting it). **No bug found in either class.**
+
+**No code changes this session** — the one candidate didn't hold up under
+a reachability check, and nothing else surfaced. This entry is committed
+directly to `main` (log-only), same established exception as prior
+status-only sessions.
+
+**No push notification sent.** PR #7 crossing 12 days is an incremental
+aging of an already-flagged item, not new information; the cross-repo
+backlog (this repo's #7/#11, Crypto_Stockbot's #3/#4) is small and healthy,
+not stuck the way PR #2 once was. Nothing here changes what a human needs
+to do differently from what the 08-21/08-22 entries already said.
+
+**What a stranger should do next:**
+1. **PR #7 (12 days) is the most overdue item across both repos right
+   now** — worth a look if a human is doing a review pass. PR #11 (1 day)
+   is fresh and can wait its normal turn.
+2. Re-check Yahoo Finance / crypto exchange hosts before assuming another
+   blocked day — 22nd day here, 18th+ for Crypto_Stockbot.
+3. The real `--ticker` smoke test against a genuinely sparse live ticker
+   (open since 08-04) is still the single highest-value data-robustness
+   item once egress opens — and per PR #11's log entry, should check
+   `dividendYield`'s scale (fraction vs already-a-percentage) first, since
+   that could silently invert a chunk of `DividendAnalyzer`'s scoring
+   either way.
+4. `NarrativeEngine`, `ReportGenerator`, and `RecommendationEngine`'s ETF
+   allocation path haven't had a dedicated close-reading pass yet (this
+   session covered `DataFetcher`/`MarketRegimeDetector`/`PortfolioManager`)
+   — a reasonable next target for a day with no live data and no PR-review
+   movement to redirect toward.
+5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
+   urgent, not acted on.
