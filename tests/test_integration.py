@@ -175,6 +175,45 @@ class TestGenerateHtml:
 
         assert isinstance(html, str) and len(html) > 0
 
+    def test_html_report_escapes_external_content_to_prevent_xss(self):
+        # Narrative text (built from yfinance company/sector fields) and news
+        # titles/sources (feedparser, third-party RSS) are external content
+        # that flows unescaped into raw HTML f-strings — a crafted or
+        # compromised value there should not become live markup/script in
+        # the generated report.
+        reporter = ReportGenerator()
+        payload = '<script>alert(1)</script>'
+        analyses = {
+            "AAA": {
+                "score": 82, "label": "Strong Buy", "color": "#3fb950",
+                "risk_label": "LOW", "category": "Tech", "top_note": "Great value",
+                "fund_score": 80, "grow_score": 75, "health_score": 85,
+                "div_score": 40, "trend_score": 78, "risk_score": 70,
+                "narrative": {
+                    "summary": payload, "bull_case": payload,
+                    "bear_case": payload, "beginner": payload,
+                    "risk_note": payload,
+                },
+            },
+        }
+        regime_data = {"regime": "NEUTRAL", "signals": [], "advice": "Balanced.",
+                       "bull_pts": 2, "bear_pts": 2}
+        recs = [{"ticker": "AAA", "score": 82, "label": "Strong Buy", "color": "#3fb950",
+                 "amount": 150.0, "type": "Stock", "reason": payload, "etf_info": None}]
+        summary = {"holdings": [], "total_invested": 0, "total_value": 0,
+                   "total_pnl": 0, "total_pnl_pct": 0}
+        profile = dict(USER_PROFILES["balanced"])
+        profile["key"] = "balanced"
+        news = [{"source": payload, "title": payload}]
+
+        out = reporter.generate_html(
+            analyses, regime_data, recs, summary,
+            warnings_list=[], news=news, budget=500.0, profile=profile,
+        )
+
+        assert "<script>alert(1)</script>" not in out
+        assert out.count("&lt;script&gt;alert(1)&lt;/script&gt;") >= 5
+
 
 # ─────────────────────────────────────────────────────────────
 #  StockAdvisor.__init__ — profile selection

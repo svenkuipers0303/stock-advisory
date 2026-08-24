@@ -24,6 +24,7 @@ USAGE:
 import os
 import json
 import time
+import html
 import warnings
 import argparse
 from datetime import datetime, timezone, timedelta
@@ -1436,11 +1437,14 @@ class ReportGenerator:
                 f'</div>'
             )
 
-            summary_text  = nav.get("summary", a.get("top_note", ""))
-            bull_text     = nav.get("bull_case", "—")
-            bear_text     = nav.get("bear_case", "—")
-            beginner_text = nav.get("beginner", "")
-            risk_text     = nav.get("risk_note", "")
+            # Narrative text is built from external yfinance fields (company name,
+            # sector, etc.) — escape before embedding in raw HTML to avoid a
+            # stored-XSS vector if any of that upstream text contains markup.
+            summary_text  = html.escape(str(nav.get("summary", a.get("top_note", ""))))
+            bull_text     = html.escape(str(nav.get("bull_case", "—")))
+            bear_text     = html.escape(str(nav.get("bear_case", "—")))
+            beginner_text = html.escape(str(nav.get("beginner", "")))
+            risk_text     = html.escape(str(nav.get("risk_note", "")))
 
             etf_block = ""
             if etf_info:
@@ -1504,7 +1508,9 @@ class ReportGenerator:
         rec_rows = ""
         for r in recs:
             c = r["color"]
-            short_reason = (r.get("narrative", {}).get("summary", r.get("reason", "")))[:100]
+            short_reason = html.escape(str(
+                r.get("narrative", {}).get("summary", r.get("reason", ""))
+            )[:100])
             rec_rows += f"""<tr>
               <td><strong>{r['ticker']}</strong></td>
               <td><strong>${r['amount']:.2f}</strong></td>
@@ -1538,8 +1544,12 @@ class ReportGenerator:
             warn_html = '<div style="color:#3fb950;font-size:.85rem">✓ No warnings. Portfolio looks healthy.</div>'
 
         # --- News ---
+        # Titles/sources come straight from third-party RSS feeds (feedparser) —
+        # escape before embedding, a crafted or compromised feed entry could
+        # otherwise inject markup/script into the generated report.
         news_html = "".join(
-            f'<div class="news-item"><span class="news-src">{n["source"]}</span>{n["title"]}</div>'
+            f'<div class="news-item"><span class="news-src">{html.escape(str(n["source"]))}</span>'
+            f'{html.escape(str(n["title"]))}</div>'
             for n in news[:20]
         ) or '<div style="color:#8b949e">No recent news loaded.</div>'
 
