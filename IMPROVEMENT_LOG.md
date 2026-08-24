@@ -971,3 +971,108 @@ to do differently from what the 08-21/08-22 entries already said.
    movement to redirect toward.
 5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
    urgent, not acted on.
+
+### 2026-08-24 (egress still blocked, 23rd consecutive day; close-reading pass on the items flagged 08-23 — found and fixed a real stored-XSS bug in generate_html — PR #12)
+
+**Egress re-tested first**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all still `403` at the CONNECT tunnel stage, `pypi.org`
+still `200` as control — 23rd consecutive day, no change. Crypto exchange
+hosts also still blocked (see Crypto_Stockbot's BACKTEST_LOG.md 2026-08-24
+entry, which also describes a new `--offline` cache fallback added there
+this session). No live-data work was possible here either.
+
+**PR #7 and PR #11 checked**: both unchanged since 08-23 — still open,
+zero new comments/reviews. PR #7 is now 13 days old (oldest overdue item
+across both repos); PR #11 is 2 days old and still fine to wait its turn.
+
+**Did the close-reading pass the 08-23 entry named as the next target**:
+`NarrativeEngine`, `ReportGenerator`, and `RecommendationEngine`'s ETF
+allocation path (none previously individually audited this way).
+
+- **`RecommendationEngine.recommend()`**: traced the
+  `etf_spent <= etf_budget` / `stock_spent <= stock_budget` invariant
+  through the loop by hand — `amount` is always
+  `max(min(available * weight * 1.4, available), 5.0)` where
+  `available = min(budget_remaining, max_single)` was already computed
+  `>= 5` (the `if available < 5: continue` guard), so the forced
+  `max(..., 5.0)` floor can never push `amount` above `available`. No
+  overspend possible. **No bug found.**
+- **`NarrativeEngine`**: one candidate considered and correctly ruled out
+  as a wording nit, not a scoring bug — `_bear_case`'s
+  `if margin < 3 and margin != 0` fires for a genuinely negative-margin
+  (loss-making) company too, since `margin < 3` is true for negative
+  values, producing a slightly misleading "Thin -X% margins" phrase for a
+  company that's actually unprofitable, not just thin-margined. Text
+  quality issue, not a scoring/logic bug — not fixed, flagged here in case
+  someone wants to special-case negative margins with clearer wording
+  later. Also confirmed the `dividendYield` fraction/percent convention
+  (`* 100` before formatting) is applied **consistently** between
+  `DividendAnalyzer.analyze()` and `NarrativeEngine._bull_case()` — the
+  open question from PR #11 about whether that's the *correct* unit for
+  real yfinance data is still unverified (needs live data), but there's no
+  internal inconsistency between the two call sites.
+- **`ReportGenerator.generate_html()`**: **found a real bug.** Several
+  externally-sourced strings are interpolated directly into raw HTML
+  f-strings with **no escaping**: news titles/sources (`DataFetcher.get_news()`
+  pulls `title = getattr(entry, "title", "")` straight from third-party RSS
+  feeds via `feedparser`, no sanitization anywhere in the chain) and
+  narrative text (`summary`/`bull_case`/`bear_case`/`beginner`/`risk_note`,
+  built by `NarrativeEngine` from `yfinance` `info` fields like `longName`
+  and `sector`) plus the recommendation table's short reason (same
+  narrative-text source). A crafted or compromised RSS feed entry, or an
+  unusual company name, could inject live markup/script into the generated
+  `report_*.html` file — a stored-XSS vector into a report that gets
+  written to disk and opened in a browser.
+
+**Fix**: `html.escape()` applied at the point each field is embedded in the
+template (narrative summary/bull/bear/beginner/risk text, rec row's short
+reason, news source/title). Purely additive escaping of plain-text fields —
+benign content renders identically or more correctly than before (a literal
+`&` in a name like "AT&T" becomes the unambiguously-correct `&amp;` instead
+of relying on browser leniency).
+
+**Verification**:
+- `python3 -m py_compile stock_advisor.py` — clean.
+- `pytest tests/ -q` → **110/110 passing** (109 existing + 1 new).
+- New regression test injects a `<script>alert(1)</script>` payload through
+  both the narrative-text path and the news path, asserts it never appears
+  unescaped in the rendered HTML.
+- **Mutation-tested**: stashed just the `stock_advisor.py` fix (kept the new
+  test) and re-ran — the new test **failed** against pre-fix code, with the
+  raw `<script>` tag showing up verbatim inside a rendered `<td>`. Restored
+  the fix, full suite green again.
+
+Opened as **PR #12** (`advisory/escape-html-report-external-content`
+branch) — no overlap with PR #7 (`tests/test_investment_brief.py`) or PR #11
+(`stock_advisor.py`'s Nasdaq-regime branch + `tests/test_scoring.py`);
+worth checking merge order only because PR #11 also touches
+`stock_advisor.py` (different function, `MarketRegimeDetector.detect()` vs
+`ReportGenerator.generate_html()` — no line overlap, should merge cleanly
+either order).
+
+**No push notification sent.** A real bug fix, but not urgent/blocking —
+this is a report-rendering vulnerability with no live exploitation evidence
+today (would need a hostile/compromised RSS feed to actually fire), and the
+existing PR backlog (#7, #11, now #12) is small and healthy, not stuck.
+Worth a look in a normal review pass, not an interrupt.
+
+**What a stranger should do next:**
+1. **PR #7 (13 days) is still the most overdue item** across both repos —
+   worth prioritizing in a review pass. PR #11 (2 days) and PR #12 (new) can
+   wait their normal turn; all three are safe to merge in any order.
+2. Re-check Yahoo Finance / crypto exchange hosts before assuming another
+   blocked day — 23rd day here.
+3. The real `--ticker` smoke test against a genuinely sparse live ticker
+   (open since 08-04) is still the single highest-value data-robustness
+   item once egress opens — check `dividendYield`'s actual scale from real
+   yfinance data first (per PR #11), since PR #12's audit only confirmed
+   *internal* consistency, not correctness against the real API.
+4. `_bear_case`'s "Thin -X% margins" phrasing for negative-margin companies
+   (found this session, not fixed) is a minor wording nit — pick it up if
+   ever doing a narrative-text-quality pass, not urgent on its own.
+5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
+   urgent, not acted on.
+6. `Crypto_Stockbot`'s companion repo added an offline OHLCV cache fallback
+   this session (PR #5 there) — worth considering whether the same pattern
+   (cache successful live fetches, add an `--offline`-style flag) would help
+   here too, given yfinance has been blocked just as long as Binance.
