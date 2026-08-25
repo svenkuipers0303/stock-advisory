@@ -971,3 +971,73 @@ to do differently from what the 08-21/08-22 entries already said.
    movement to redirect toward.
 5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
    urgent, not acted on.
+
+### 2026-08-25 (status check — egress still blocked, 23rd+ day; spot-checked disk-write paths, no bug found; PR backlog flagged; process note)
+
+**Egress re-tested first**: `query1`/`query2.finance.yahoo.com`,
+`finance.yahoo.com` all still `403` at the CONNECT tunnel stage, identical
+pattern to every check since 2026-08-02 — 23rd+ consecutive day. Crypto
+exchange hosts also still blocked (see Crypto_Stockbot's BACKTEST_LOG.md
+2026-08-25 entry). No live-data work was possible.
+
+**PR states checked directly (`get_comments`/`get_reviews`)**: **PR #7**
+(InvestmentBriefEngine tests, opened 08-11) is now **14 days old, still zero
+review activity** — the oldest unreviewed item across both repos, and the
+same age this repo's own PR #2-equivalent (Crypto_Stockbot's PR #2) was at
+before finally getting merged. **PR #11** (MarketRegimeDetector fix, 3 days)
+and **PR #12** (stored-XSS fix in `generate_html`, opened yesterday by the
+prior session) are both also still open, zero activity, `mergeable_state:
+clean`.
+
+**24-08's close-reading pass covered `NarrativeEngine`/`ReportGenerator`/
+`RecommendationEngine`'s ETF path and found the real XSS bug now in PR #12 —
+between that and 08-20/08-21/08-23, essentially every class in
+`stock_advisor.py` has now had at least one dedicated close-reading pass**
+(`StockAdvisor.__init__`, `RecommendationEngine`, `InvestmentBriefEngine`,
+`DataFetcher`, `MarketRegimeDetector`, `PortfolioManager`, `NarrativeEngine`,
+`ReportGenerator`). Rather than force a fifth pass over already-covered
+ground, this session spot-checked the two disk-write paths that hadn't been
+looked at specifically: `ReportGenerator.generate_html`'s output filename
+(`f"report_{datetime.now().strftime('%Y-%m-%d_%H%M')}.html"`, line ~1708 —
+derived from the clock, not ticker/user input, so no path-traversal risk)
+and `stock_advisor_cache.json`'s write path (line ~1809-1811 — fixed
+filename next to the script, JSON-encoded via `json.dump`, no raw-HTML
+interpolation so the same class of bug PR #12 fixes doesn't apply here).
+**No bug found — a real, checked negative result.**
+
+**No code changes this session.**
+
+**Sent one push notification this session** (shared with Crypto_Stockbot's
+2026-08-25 entry — see that file for the full text): cross-repo PR backlog is
+back at 6 open, zero-review PRs, and two things are new since 08-23 — PR #7
+crossing the 14-day mark, and PR #12 being security-relevant (stored XSS)
+rather than a routine test/robustness PR.
+
+**Process note (same as Crypto_Stockbot's 2026-08-25 entry, repeated here for
+anyone reading only this file)**: several recent entries in this log (e.g.
+08-14, 08-18, 08-21, 08-23) describe committing log-only entries directly to
+`main`. This routine's outer task instructions say "never push directly to
+main" without exception, and Crypto_Stockbot's `BACKTEST_LOG.md` has the same
+rule stated explicitly as a hard safety boundary — this repo's log doesn't
+have an equivalent section written down, but the outer instruction still
+applies. This entry uses a branch + PR instead of a direct commit, reverting
+away from the pattern several recent sessions used. Flagging for a human (or
+future session) to settle explicitly, so this doesn't need re-raising again.
+
+**What a stranger should do next:**
+1. **PR #7 (14 days, oldest across both repos) is the top review priority**,
+   alongside PR #11 (3 days) and PR #12 (1 day, security-relevant — stored
+   XSS). All independently verified, non-conflicting.
+2. Re-check Yahoo Finance / crypto exchange hosts before assuming another
+   blocked day — 23rd+ day here and in Crypto_Stockbot.
+3. The real `--ticker` smoke test against a genuinely sparse live ticker
+   (open since 08-04) is still the single highest-value data-robustness item
+   once egress opens.
+4. Close-reading of `stock_advisor.py`'s major classes is now essentially
+   complete (see list above) — further close-reading passes are likely
+   diminishing-returns unless a fresh module/entry point (e.g. `main()`/CLI
+   arg handling, never yet audited on its own) is specifically wanted.
+5. The `alloc_stocks`/`etf_pct > 85` fragility (08-21) remains flagged, not
+   urgent, not acted on.
+6. Decide the direct-to-main-for-log-entries question above (see also
+   Crypto_Stockbot's 2026-08-25 entry) one way or the other.
